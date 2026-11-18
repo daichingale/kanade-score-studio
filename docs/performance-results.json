@@ -1,0 +1,77 @@
+{
+  "performance-before": {
+    "node": "v22.16.0",
+    "cases": [
+      {
+        "bars": 120,
+        "notes": 960,
+        "renderMedianMs": 4.044,
+        "svgBytes": 1260166
+      },
+      {
+        "bars": 500,
+        "notes": 2000,
+        "renderMedianMs": 7.074,
+        "svgBytes": 1968801
+      }
+    ]
+  },
+  "performance-after": {
+    "node": "v22.16.0",
+    "cases": [
+      {
+        "bars": 120,
+        "notes": 960,
+        "renderMedianMs": 6.657,
+        "svgBytes": 893939
+      },
+      {
+        "bars": 500,
+        "notes": 2000,
+        "renderMedianMs": 9.11,
+        "svgBytes": 1840744
+      }
+    ]
+  },
+  "browser-before": {
+    "bars": 120,
+    "notes": 960,
+    "navigationMedianMs": 51.9,
+    "svgBytes": 1282322,
+    "domNodes": 8690,
+    "fullSvgReplacements": 40
+  },
+  "browser-after": {
+    "bars": 120,
+    "notes": 960,
+    "navigationMedianMs": 1.5,
+    "svgBytes": 911837,
+    "domNodes": 7399,
+    "fullSvgReplacements": 0,
+    "editingMedianMs": 4.3,
+    "unchangedMeasurePreserved": true
+  },
+  "history-before": {
+    "bars": 500,
+    "notes": 2000,
+    "edits": 30,
+    "modelEditMedianMs": 4.456,
+    "retainedMeasureObjects": 15500,
+    "retainedEventObjects": 62000
+  },
+  "history-after": {
+    "bars": 500,
+    "notes": 2000,
+    "edits": 30,
+    "modelEditMedianMs": 0.875,
+    "retainedMeasureObjects": 530,
+    "retainedEventObjects": 2030
+  },
+  "conditions": {
+    "date": "2026-10-28",
+    "baselineCommit": "55447e0",
+    "host": "Windows",
+    "node": "v22.16.0",
+    "description": "Local microbenchmarks; medians and object counts are not guarantees of total process memory or all workload performance."
+  }
+}

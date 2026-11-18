@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#225e95">
+  <meta name="referrer" content="no-referrer">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="color-scheme" content="light">
+  <title>Kanade — 楽譜エディタ</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="src/symbols.js"></script>
+  <script defer src="src/core.js"></script>
+  <script defer src="src/sync.js"></script>
+  <script defer src="src/editing.js"></script>
+  <script defer src="src/arrangement.js"></script>
+  <script defer src="src/arrangement-ui.js"></script>
+  <script defer src="src/performance.js"></script>
+  <script defer src="src/piano-roll.js"></script>
+  <script defer src="src/piano-roll-ui.js"></script>
+  <script defer src="src/performance-panel.js"></script>
+  <script defer src="src/notation.js"></script>
+  <script defer src="src/percussion.js"></script>
+  <script defer src="src/icons.js"></script>
+  <script defer src="src/instruments.js"></script>
+  <script defer src="src/samples.js"></script>
+  <script defer src="src/playback.js"></script>
+  <script defer src="src/mastering.js"></script>
+  <script defer src="src/transport.js"></script>
+  <script defer src="src/session-player.js"></script>
+  <script defer src="src/audio.js"></script>
+  <script defer src="src/musicxml.js"></script>
+  <script defer src="src/musicxml-import.js"></script>
+  <script defer src="src/musicxml-container.js"></script>
+  <script defer src="src/limiter-worklet.js"></script>
+  <script defer src="src/audio-export.js"></script>
+  <script defer src="src/midi-export.js"></script>
+  <script defer src="src/renderer.js"></script>
+  <script defer src="src/workspace.js"></script>
+  <script defer src="src/viewport.js"></script>
+  <script defer src="src/app.js"></script>
+  <script defer src="vendor/qrcode-generator.js"></script>
+  <script defer src="src/collaboration.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">𝄞</span><div><strong>kanade<span class="brand-dot">.</span></strong></div></div>
+      <nav id="appMenubar" class="app-menubar" aria-label="メニューバー">
+        <details class="app-menu" id="fileMenu"><summary>ファイル</summary><div class="menu-panel"><button id="newBtn" class="ghost" title="新規作成">新規</button><button id="openBtn" class="ghost" title="Kanade、MusicXML、MXLを開く">楽譜を開く</button><button id="mediaOpen" type="button" class="ghost">動画・音声を開く</button><button id="demoBtn" class="ghost" title="入力例を表示">サンプル譜</button><div class="menu-divider"></div><div class="menuwrap"><button id="exportBtn" class="ghost" aria-expanded="false">書き出し ▾</button><div id="exportMenu" class="export-menu hidden"><button data-export="wav">WAV 音声 (.wav)</button><button data-export="mp3">MP3 音声 (.mp3)</button><button data-export="midi">MIDI (.mid)</button><button data-export="musicxml">MusicXML (.musicxml)</button><button data-export="svg">SVG 画像 (.svg)</button><button data-export="ksl">KSL テキスト (.ksl) <small>試験的</small></button><button data-export="print">印刷プレビュー</button><button data-export="pdf">PDF出力</button></div></div></div></details>
+        <details class="app-menu" id="editMenu"><summary>編集</summary><div class="menu-panel"><button id="selectMeasure" title="現在の小節全体を選択">小節選択</button><button id="selectSingle">音符・休符を1つ選択</button><button id="selectToStart">現在の音符から曲頭まで</button><button id="selectToEnd">現在の音符から曲末まで</button><div class="menu-divider"></div><button id="deleteNoteMenu">音符・休符を消去</button><button id="copySelection" title="コピー（Ctrl+C）">コピー</button><button id="cutSelection" title="切り取り（Ctrl+X）">切り取り</button><button id="pasteSelection" title="カーソル位置から貼り付け（Ctrl+V）" disabled>貼り付け</button><div class="menu-divider"></div><button id="addMeasure">＋ 小節を追加</button><button id="insertMeasureBefore" title="選択中の小節の前に空小節を挿入">手前に挿入</button><button id="duplicateMeasures" title="選択範囲がまたがる小節を複製">小節複製</button><button id="removeMeasure" title="選択範囲がまたがる小節を丸ごと削除（Ctrl+Zで戻す）">小節削除</button></div></details>
+        <button class="menu-trigger" data-panel="scoreSettings">楽譜</button>
+        <button class="menu-trigger" data-transport-action="mix">再生</button><button class="menu-trigger" data-panel="collabPanel">共同編集</button>
+        <details class="app-menu" id="viewMenu"><summary>表示</summary><div class="menu-panel"><button id="menuPianoRoll" type="button">ピアノロール</button><button id="menuOverview">全体譜・自動整形</button><button id="menuPublication">作品情報・表紙</button><button id="menuPrintPreview">印刷プレビュー</button><button data-view-action="in">拡大（Ctrl＋＋）</button><button data-view-action="out">縮小（Ctrl＋−）</button><button data-view-action="actual">100%（Ctrl＋0）</button><button data-view-action="fit">幅に合わせる</button><button data-hand-tool aria-pressed="false">手のひらツール（H）</button><div class="menu-divider"></div><button data-toggle-inspector>音符の詳細を表示／閉じる</button><button id="installApp" hidden>アプリとしてインストール</button><button data-panel="helpPanel">操作ガイド・アプリ情報</button></div></details>
+      </nav>
+      <div class="quick-actions"><button id="arrangementOpen" type="button" aria-controls="arrangement" aria-expanded="false">タイムライン</button><button id="mobileMenu" type="button" aria-controls="appMenubar" aria-expanded="false">メニュー</button><button id="mobilePlay" class="mobile-play" aria-label="再生" aria-pressed="false">▶</button><button id="collabBadge" data-panel="collabPanel" hidden>共同編集</button><button id="commandBtn" class="ghost" title="操作を検索（Ctrl+K / ⌘K）" aria-haspopup="dialog" aria-controls="commandPalette">操作検索</button><button id="saveBtn" class="solid" title="プロジェクトを保存"><span aria-hidden="true">↓</span> 保存</button></div>
+      <input id="importFile" type="file" accept=".json,.kanade.json,.musicxml,.xml,.mxl,application/json,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml" hidden>
+    </header>
+    <div class="workspace">
+      <aside class="sidebar" aria-label="音符パレット">
+        <div class="side-heading">音符</div>
+
+
+
+        <div id="durations" class="duration-list"></div>
+        <button id="dotBtn" class="tool-row" title="付点の切替（.）" aria-keyshortcuts="."><span class="music-symbol">♩.</span> 付点 <kbd>[.]</kbd></button>
+        <button id="tieBtn" class="tool-row" aria-keyshortcuts="T"><span class="music-symbol">⌒</span> タイ <kbd>[T]</kbd></button>
+        <div class="tuplet-toolbar">
+          <button id="tupletBtn" class="tool-row" aria-keyshortcuts="U" aria-pressed="false"><span id="tupletButtonLabel">3連符</span> <kbd>[U]</kbd></button>
+          <button id="tupletSettingsBtn" class="tool-row" aria-keyshortcuts="Shift+U" aria-label="連符設定" title="連符設定 [Shift+U]">⚙</button>
+        </div>
+        <div class="group-title">臨時記号</div>
+        <div id="accidentals" class="accidental-row"><button class="active" data-alter="auto" title="調号に従う">自動</button><button data-alter="-1">♭</button><button data-alter="0">♮</button><button data-alter="1">♯</button></div>
+        <details class="pitch-options"><summary>音名・オクターブ</summary>        <div class="group-title">音高 <span class="shortcut">A – G</span></div>
+        <div class="pitch-grid" id="pitchButtons"><button data-step="C">C <small>ド</small></button><button data-step="D">D <small>レ</small></button><button data-step="E">E <small>ミ</small></button><button data-step="F">F <small>ファ</small></button><button data-step="G">G <small>ソ</small></button><button data-step="A">A <small>ラ</small></button><button data-step="B">B <small>シ</small></button></div>
+        <div class="octave-row"><label for="octave">オクターブ</label><button id="octDown" aria-label="オクターブを下げる">−</button><output id="octaveVal">4</output><button id="octUp" aria-label="オクターブを上げる">＋</button></div>
+</details>
+        <button id="restBtn" class="outline wide" title="休符入力：0 / Shift+Enter / Alt+Enter。Rで選択音符と休符を切り替え"><span class="music-symbol">𝄽</span> 休符を入力 <span class="tool-hint">0</span></button>
+        <button id="chordBtn" title="Shift+A〜G または Ctrl+Enterで和音の音を追加" class="outline wide" aria-pressed="false">＋ 和音</button>
+
+      </aside>
+      <main class="main">
+        <div class="docbar">
+          <div class="doc-title"><span class="doc-icon">♫</span><input id="titleInput" aria-label="曲名" value="新しい楽譜" maxlength="200"><span id="saveLabel">保存済み</span></div>
+          <div class="history-buttons"><button id="mobileOverview" type="button" class="mobile-overview">全体譜</button><button data-toggle-inspector title="音符の詳細を表示／閉じる" aria-pressed="false">音符の詳細</button><button id="undoBtn" aria-label="元に戻す" title="元に戻す (Ctrl+Z)">↶ <span>戻す</span></button><button id="redoBtn" aria-label="やり直す" title="やり直す (Ctrl+Shift+Z)">↷ <span>やり直す</span></button></div>
+        </div>
+        <div id="entryBar" class="entrybar" aria-label="楽譜の入力操作">
+          <div class="entry-modes" role="group" aria-label="操作モード"><button id="entryModeBtn" class="entry-mode active" aria-pressed="true" title="音符入力モード (N)">♪ 入力</button><button id="selectModeBtn" class="entry-mode" aria-pressed="false" title="選択モード (V)">↖ 選択</button></div>
+          <span class="entry-indicator"><strong id="currentDuration">4分音符</strong> <span id="overwriteIndicator" hidden>上書き</span></span>
+          <div class="toolbar-divider"></div>
+          <button id="measureJump" class="meter-button desktop-jump" type="button" aria-haspopup="dialog" title="小節番号へ移動（Alt+G）">小節へ</button><button id="timeSelect" class="meter-button" type="button" aria-haspopup="dialog">拍子 4/4</button><div class="controlblock"><label for="keySelect">調号</label><select id="keySelect"><option value="0">C / Am (0)</option><option value="1">G / Em (♯1)</option><option value="2">D / Bm (♯2)</option><option value="3">A / F♯m (♯3)</option><option value="4">E / C♯m (♯4)</option><option value="-1">F / Dm (♭1)</option><option value="-2">B♭ / Gm (♭2)</option><option value="-3">E♭ / Cm (♭3)</option><option value="-4">A♭ / Fm (♭4)</option></select></div><div class="controlblock tempo"><label for="tempoInput">テンポ ♩=</label><input id="tempoInput" type="number" min="20" max="300" value="100" aria-label="テンポ"></div>
+          <div class="transport"><button id="playBtn" title="再生・停止（Space）" aria-pressed="false" class="play-button">▶ <span>再生</span></button><button id="stopBtn" class="icon-button" title="停止">■</button></div>
+        </div>
+        <div id="desktopEditHome">
+          <div id="desktopEdit" class="desktop-edit" role="group" aria-label="選択した音符を編集">
+            <output id="desktopSelection" aria-live="polite"></output>
+            <div class="desktop-edit-group" role="group" aria-label="音符・休符を選択">
+              <button type="button" data-desktop-edit="previous" aria-label="前の音符・休符" title="前の音符・休符">‹</button>
+              <button type="button" data-desktop-edit="next" aria-label="次の音符・休符" title="次の音符・休符">›</button>
+            </div>
+            <div class="desktop-edit-group" role="group" aria-label="音価">
+              <select id="desktopDuration" aria-label="選択した音符・休符の音価"></select>
+              <button type="button" data-desktop-edit="dot" title="付点を切り替え" aria-pressed="false">付点</button>
+            </div>
+            <div class="desktop-edit-group" role="group" aria-label="音高">
+              <button type="button" data-desktop-edit="lower" aria-label="選択音を下げる" title="選択音を下げる">↓</button>
+              <button type="button" data-desktop-edit="higher" aria-label="選択音を上げる" title="選択音を上げる">↑</button>
+            </div>
+            <div class="desktop-edit-group">
+              <button type="button" data-desktop-edit="rest" title="音符と休符を切り替え [R]">音符⇄休符</button>
+              <button type="button" data-desktop-edit="tie" title="タイ [T]">タイ</button>
+              <button type="button" data-desktop-edit="slur" title="スラー [S]">スラー</button>
+              <button type="button" data-desktop-edit="erase">消去</button>
+            </div>
+          </div>
+        </div>
+        <section class="ensemble-strip" aria-label="スコアとパート">
+          <button id="voiceToggle" class="voice-toggle" type="button" aria-pressed="false" title="現在の小節だけ編集。小節を移動すると第1声部に戻ります">＋ 第2声部</button>
+          <button id="performanceOpen" class="voice-toggle" type="button" aria-controls="performancePanel" aria-expanded="false">演奏・コード入力</button><button id="ensembleOpen" class="ensemble-button" type="button">編成</button>
+          <div id="ensembleActive" class="ensemble-active" hidden>
+            <button id="ensemblePrev" type="button" aria-label="前のパート">‹</button>
+            <label class="ensemble-part-label"><span>編集中のパート</span><select id="ensemblePart" aria-label="編集中のパート"></select></label>
+            <button id="ensembleNext" type="button" aria-label="次のパート">›</button>
+            <button id="ensemblePads" type="button" hidden>打面</button><button id="ensembleFull" type="button">総譜</button>
+          </div>
+        </section>
+        <div id="collabPartBar" class="collab-partbar" hidden>
+          <span>入力パート</span><button data-part="melody" aria-pressed="true">メロディー</button><button data-part="bass" aria-pressed="false">ベース</button>
+          <button id="collabLiveCount" data-panel="collabPanel" title="共同編集の参加者と同期状態">1人</button>
+        </div>
+        <div class="score-scroll" id="scoreScroll"><div class="paper"><div id="scoreHost" tabindex="-1" aria-label="編集可能な楽譜"></div></div></div>
+        <section id="collabPreview" class="collab-preview" hidden aria-labelledby="collabPreviewTitle">
+          <h2 id="collabPreviewTitle"></h2><div id="collabPreviewScore"></div>
+        </section>
+        <section id="mobileEditor" class="mobile-editor" aria-label="スマホ楽譜ツール">
+          <div class="mobile-context">
+            <nav class="mobile-measures" aria-label="小節の移動">
+              <button id="mobileMeasurePrev" aria-label="前の小節">«</button>
+              <button id="mobileMeasureNext" aria-label="次の小節">»</button>
+            </nav>
+            <output id="mobileSelection"></output>
+            <button data-mobile-action="previous" aria-label="前の音符・休符">‹</button>
+            <button data-mobile-action="next" aria-label="次の音符・休符">›</button>
+            <button data-mobile-action="chord" aria-pressed="false">和音</button>
+            <button data-mobile-action="collapse" aria-expanded="false" aria-controls="mobileTools">詳細</button>
+          </div>
+          <div class="mobile-adjust mobile-quick-row" role="group" aria-label="音符の入力と調整">
+            <button data-mobile-action="shorter" aria-label="音価を短く">−<small>音価</small></button>
+            <button data-mobile-action="longer" aria-label="音価を長く">＋<small>音価</small></button>
+            <button data-mobile-action="lower" aria-label="音高を下げる">↓</button>
+            <div id="mobileSwipe" class="mobile-swipe" aria-label="音高・音価をスワイプで調整">✥</div>
+            <button data-mobile-action="higher" aria-label="音高を上げる">↑</button>
+            <button data-mobile-action="eraseNote" aria-label="選択した音符・休符を消去">消去</button>
+            <button data-mobile-action="addNote" class="mobile-primary">＋音符</button>
+          </div>
+          <div id="mobileChordEditor" class="mobile-chord-editor" hidden>
+            <div id="mobileChordPitches" aria-label="和音の構成音"></div>
+            <button id="mobileChordAdd" data-mobile-action="chordAdd" aria-pressed="false" aria-label="五線をタップして音を追加">＋音</button>
+            <button id="mobileChordRemove" data-mobile-action="chordRemove" aria-label="選んだ構成音を削除">音を削除</button>
+          </div>
+          <div id="mobileTools" hidden>
+            <div class="mobile-tabs" role="group" aria-label="入力パレット">
+              <button data-mobile-tab="notes" aria-pressed="true">音符</button><button data-mobile-tab="keys" aria-pressed="false">音名</button><button data-mobile-tab="marks" aria-pressed="false">記号</button><button data-mobile-tab="actions" aria-pressed="false">編集</button><button data-mobile-tab="measures" aria-pressed="false">小節</button>
+            </div>
+            <div data-mobile-pane="notes">
+              <div class="mobile-row mobile-entry">
+                <button data-mobile-action="dot" aria-pressed="false">付点</button>
+                <button data-mobile-action="toggleRest" aria-label="音符と休符を切り替え">音符⇄休符</button>
+                <button data-mobile-action="addRest">＋休符</button>
+                <button data-mobile-action="tie">タイ</button>
+                <button data-mobile-action="tuplet" aria-pressed="false">3連符</button>
+                <button data-mobile-action="tupletSettings">連符設定</button>
+              </div>
+            </div>
+            <div data-mobile-pane="keys" hidden>
+              <div class="mobile-row mobile-keys" aria-label="音名から入力">
+                <button data-mobile-pitch="C">ド<small>C</small></button><button data-mobile-pitch="D">レ<small>D</small></button><button data-mobile-pitch="E">ミ<small>E</small></button><button data-mobile-pitch="F">ファ<small>F</small></button><button data-mobile-pitch="G">ソ<small>G</small></button><button data-mobile-pitch="A">ラ<small>A</small></button><button data-mobile-pitch="B">シ<small>B</small></button>
+              </div>
+              <div class="mobile-row mobile-marks">
+                <button data-mobile-action="octDown" aria-label="入力オクターブを下げる">−8度</button><output id="mobileOctave"></output><button data-mobile-action="octUp" aria-label="入力オクターブを上げる">＋8度</button>
+              </div>
+            </div>
+            <div data-mobile-pane="marks" hidden>
+              <div class="mobile-row mobile-marks">
+                <button data-mobile-art="accent" aria-pressed="false"><b>＞</b><small>アクセント</small></button>
+                <button data-mobile-art="staccato" aria-pressed="false"><b>•</b><small>スタッカート</small></button>
+                <button data-mobile-art="tenuto" aria-pressed="false"><b>―</b><small>テヌート</small></button>
+                <button data-mobile-art="marcato" aria-pressed="false"><b>∧</b><small>マルカート</small></button>
+              </div>
+              <div class="mobile-row mobile-marks">
+                <button data-mobile-alter="-1" aria-label="フラット" aria-pressed="false">♭</button><button data-mobile-alter="0" aria-label="ナチュラル" aria-pressed="false">♮</button><button data-mobile-alter="1" aria-label="シャープ" aria-pressed="false">♯</button><button data-mobile-alter="auto" aria-label="調号どおり" aria-pressed="false">調号どおり</button>
+              </div>
+              <div class="mobile-row mobile-marks" aria-label="よく使う指示">
+                <button data-mobile-direction="crescendo">cresc.〈</button>
+                <button data-mobile-direction="slur">スラー</button>
+                <button data-mobile-direction="速度:rit.">rit.</button>
+                <button data-mobile-direction="ff">ff</button>
+                <button data-mobile-direction="発想:cantabile">cantabile</button>
+              </div>
+              <div class="mobile-row mobile-utility">
+                <button data-mobile-action="noteSymbols">音符記号の詳細</button><button data-mobile-action="directionSymbols">指示記号の詳細</button>
+              </div>
+            </div>
+            <div data-mobile-pane="actions" hidden>
+              <div class="mobile-row mobile-marks" role="group" aria-label="選択範囲">
+                <button data-mobile-action="selectSingle">音符1つ</button>
+                <button data-mobile-action="selectMeasure">小節全体</button>
+                <button data-mobile-action="selectToStart" aria-label="現在の音符から曲頭まで">曲頭まで</button>
+                <button data-mobile-action="selectToEnd" aria-label="現在の音符から曲末まで">曲末まで</button>
+              </div>
+              <div class="mobile-row mobile-marks">
+                <button data-mobile-action="deleteNote">音符を消去</button><button data-mobile-action="loop">範囲ループ</button><button data-mobile-action="performance">演奏・コード入力</button><button data-mobile-action="commands">全コマンド</button><button data-mobile-action="settings" aria-expanded="false" aria-controls="entryBar">入力設定</button>
+              </div>
+              <div class="mobile-row mobile-marks">
+                <button data-mobile-action="copy">コピー</button><button data-mobile-action="paste">貼り付け</button><button data-toggle-inspector aria-pressed="false">音符の詳細</button><button data-mobile-action="stem">符幹反転</button>
+              </div>
+            </div>
+            <div data-mobile-pane="measures" hidden>
+              <div class="mobile-row mobile-utility"><button data-mobile-action="meter" aria-haspopup="dialog">拍子を設定</button></div>
+              <div class="mobile-row mobile-measure-tools">
+                <button data-mobile-action="addMeasure" class="mobile-primary">後ろに1小節</button>
+                <div class="mobile-count-stepper"><button data-mobile-action="countDown" aria-label="追加する小節数を減らす">−</button><input id="mobileMeasureCount" type="number" min="1" max="499" step="1" value="4" inputmode="numeric" aria-label="小節数"><button data-mobile-action="countUp" aria-label="追加する小節数を増やす">＋</button></div>
+                <button data-mobile-action="addManyMeasures">まとめて追加</button>
+              </div>
+              <div class="mobile-row mobile-marks">
+                <button data-mobile-action="insertBefore">手前に挿入</button>
+                <button data-mobile-action="selectMeasure">小節選択</button>
+                <button data-mobile-action="duplicateMeasure">小節を複製</button>
+                <button data-mobile-action="removeMeasures" class="mobile-danger">小節を削除</button>
+              </div>
+            </div>
+          </div>
+        </section>
+        <div class="score-bottom"><span id="selectionInfo">カーソル位置から編集</span><span id="measureCount">1 小節</span><div class="zoom-controls" role="group" aria-label="譜面の拡大縮小"><button data-hand-tool aria-pressed="false" title="手のひらツール（H）：ドラッグで譜面を移動" aria-label="手のひらツール">✋</button><button id="zoomOut" data-view-action="out" title="縮小（Ctrl＋−）" aria-label="譜面を縮小">−</button><button id="zoomLevel" data-view-action="actual" title="100%に戻す（Ctrl＋0）" aria-label="拡大率・100%に戻す">100%</button><button id="zoomIn" data-view-action="in" title="拡大（Ctrl＋＋）" aria-label="譜面を拡大">＋</button><button data-view-action="fit" title="譜面の幅に合わせる">幅</button></div></div>
+      </main>
+      <aside class="inspector" id="noteInspector" hidden aria-label="音符の詳細"><div class="inspector-title">音符の詳細 <button data-toggle-inspector aria-label="音符の詳細を閉じる">×</button></div><div id="inspectorBody"></div></aside>
+    </div>
+  <section id="arrangement" class="arrangement" aria-label="タイムラインとセッション" hidden>
+    <header class="arr-header">
+      <div class="arr-views" role="group" aria-label="表示の切り替え">
+        <button data-arr-view="timeline" type="button" aria-pressed="true">タイムライン</button><button data-arr-view="roll" type="button" aria-pressed="false">ピアノロール</button><button data-arr-view="session" type="button" aria-pressed="false">セッション</button>
+      </div>
+      <div class="arr-header-actions"><button id="arrUndo" type="button" aria-label="元に戻す">↶</button><button id="arrPlay" type="button">▶ 再生</button></div>
+    </header>
+    <div id="arrTimeline">
+      <div class="arr-toolbar">
+        <button id="arrMulti" type="button" aria-pressed="false">複数選択</button>
+        <button id="arrClear" type="button" hidden>選択を解除</button>
+        <span id="arrSelection"></span>
+        <div class="arr-pages"><button id="arrPrevious" type="button" aria-label="前の小節一覧">‹</button><output id="arrPage"></output><button id="arrNext" type="button" aria-label="次の小節一覧">›</button></div>
+      </div>
+      <div id="arrScroll" class="arr-scroll" aria-label="トラック一覧" tabindex="0"><div id="arrGrid"></div></div>
+      <div id="arrPlacement" class="arr-placement" hidden>
+        <strong id="arrPending"></strong>
+        <label id="arrCopiesLabel">回数 <select id="arrCopies"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></label>
+        <button id="arrAfter" type="button">選択小節の後ろ</button><button id="arrEnd" type="button">曲末</button><button id="arrCancel" type="button">取消</button>
+      </div>
+      <div id="arrShelf" class="arr-shelf" aria-label="保存済みブロック" hidden></div>
+      <div id="arrActions" class="arr-actions">
+        <button id="arrLoopEdit" type="button">選択範囲をループ編集</button>
+        <button id="arrCopy" type="button">コピー</button><button id="arrPaste" type="button" hidden>貼り付け</button>
+        <button id="arrUse" type="button">選択順で挿入</button>
+        <button id="arrSaveClip" type="button">シーンに保存</button>
+        <button id="arrMove" type="button">移動</button><button id="arrUnlink" type="button" hidden>シーンのリンクを解除</button>
+        <button id="arrRepeat" type="button">リピート</button>
+        <button id="arrVolta" type="button">1・2番かっこ</button>
+        <button id="arrClearRepeat" type="button" hidden>反復記号を解除</button>
+      </div>
+    </div>
+    <div id="arrRoll" class="roll-editor" hidden>
+      <div class="roll-toolbar">
+        <strong id="rollClipLabel" hidden></strong>
+        <label>パート <select id="rollPart"></select></label>
+        <label>声部 <select id="rollVoice"><option value="1">第1声部</option><option value="2">第2声部</option></select></label>
+        <label>グリッド <select id="rollGridSize"><option value="4">4分</option><option value="8" selected>8分</option><option value="16">16分</option><option value="32">32分</option><option value="64">64分</option></select></label>
+        <button id="rollDraw" type="button" aria-pressed="false">音符入力</button>
+        <div class="roll-pages"><button id="rollPrevious" type="button" aria-label="前の4小節">‹</button><output id="rollPage"></output><button id="rollNext" type="button" aria-label="次の4小節">›</button></div>
+      </div>
+      <div id="rollScroll" class="roll-scroll" tabindex="0" aria-label="ピアノロール編集グリッド">
+        <div id="rollGrid" class="roll-grid">
+          <div class="roll-corner">音高</div><div id="rollRuler" class="roll-ruler"></div>
+          <div id="rollKeys" class="roll-keys" aria-label="鍵盤"></div>
+          <div id="rollField" class="roll-field"><div id="rollStripes"></div><div id="rollBeats"></div><div id="rollNotes" aria-label="音符"></div><div id="rollPlayhead" hidden></div></div>
+        </div>
+      </div>
+      <div class="roll-actions">
+        <output id="rollSelection"></output>
+        <div class="roll-clipboard" role="group" aria-label="音符のコピーと複製">
+          <button type="button" data-roll-clipboard="c" title="Ctrl+C">コピー</button><button type="button" data-roll-clipboard="x" title="Ctrl+X">切り取り</button>
+          <button type="button" data-roll-clipboard="v" title="Ctrl+V">貼り付け</button><button type="button" data-roll-clipboard="d" title="Ctrl+D">複製</button>
+        </div>
+        <div id="rollNudges" role="group" aria-label="選択した音符の編集">
+          <button type="button" data-roll-op="left" aria-label="開始位置を前へ">←</button><button type="button" data-roll-op="right" aria-label="開始位置を後ろへ">→</button>
+          <button type="button" data-roll-op="down" aria-label="半音下げる">↓</button><button type="button" data-roll-op="up" aria-label="半音上げる">↑</button>
+          <button type="button" data-roll-op="shorter" aria-label="音を短くする">短く</button><button type="button" data-roll-op="longer" aria-label="音を長くする">長く</button>
+          <button type="button" data-roll-op="delete" aria-label="選んだ音を削除">削除</button>
+        </div>
+      </div>
+    </div>
+    <div id="arrSession" hidden>
+      <div class="arr-toolbar session-tools">
+        <button id="arrNewClip" type="button" class="arr-primary">＋ 空のシーンを追加</button>
+        <button id="arrCaptureScene" type="button">小節から取り込む</button>
+        <button id="arrPlaceMix" type="button" disabled>再生中の組み合わせを配置</button>
+        <label class="arr-loop"><input id="arrLoop" type="checkbox" checked> ループ</label>
+        <label>切り替え <select id="arrQuantize"><option value="beat" selected>次の拍</option><option value="now">すぐに</option></select></label>
+      </div>
+      <div id="arrClipTools" class="session-clip-tools" hidden>
+        <strong id="arrClipSelection"></strong>
+        <button id="arrEditClip" type="button">ピアノロールで編集</button>
+        <button id="arrLinkClip" type="button">クリップをリンク配置</button>
+        <button id="arrCopyClip" type="button" title="Ctrl+C">コピー</button><button id="arrCutClip" type="button" title="Ctrl+X">切り取り</button>
+        <button id="arrPasteClip" type="button" title="Ctrl+V">貼り付け</button><button id="arrDuplicateClip" type="button" title="Ctrl+D">下に複製</button>
+      </div>
+      <p id="arrSessionEmpty" class="session-empty">空のシーンを追加して、クリップを好きなパートに作れます。</p>
+      <div id="arrSessionScroll" class="session-scroll" aria-label="セッションのクリップ一覧" tabindex="0">
+        <table class="session-grid" id="arrClips" aria-label="シーンとパート"></table>
+      </div>
+    </div>
+    <output id="arrStatus" role="status"></output>
+    <div id="arrContext" class="arr-context" popover="manual" aria-label="小節の操作">
+      <button id="arrContextCopy" type="button">小節をコピー<span>Ctrl+C</span></button>
+      <button id="arrContextPaste" type="button">ここに貼り付け<span>Ctrl+V</span></button>
+      <button id="arrContextDuplicate" type="button">後ろに複製<span>Ctrl+D</span></button>
+    </div>
+  </section>
+  <dialog id="arrDialog" class="settings-panel arr-dialog" aria-labelledby="arrDialogHeading">
+    <form id="arrForm">
+      <div class="panel-heading"><h2 id="arrDialogHeading"></h2><button id="arrDialogClose" aria-label="閉じる" type="button">×</button></div>
+      <label id="arrNameLabel">名前 <input id="arrName" type="text" maxlength="50"></label>
+      <div id="arrSceneFields" class="session-range" hidden>
+        <label>開始小節 <input id="arrSceneFrom" type="number" min="1" inputmode="numeric"></label>
+        <label>終了小節 <input id="arrSceneTo" type="number" min="1" inputmode="numeric"></label>
+      </div>
+      <div id="arrVoltaFields" hidden><label>繰り返し開始の小節 <input id="arrRepeatFrom" type="number" min="1" inputmode="numeric"></label><label>2番かっこの小節数 <input id="arrSecondCount" type="number" min="1" inputmode="numeric"></label></div>
+      <fieldset id="arrMeterFields" hidden>
+        <legend>貼り付け先の拍子</legend>
+        <p id="arrMeterSummary"></p>
+        <label><input type="radio" name="arrMeterCopy" value="original" checked> 元の拍子を使う</label>
+        <label><input type="radio" name="arrMeterCopy" value="fit"> 貼り付け先の拍子に合わせる</label>
+        <small>音価を保って小節を区切り直します。余りは休符にします。</small>
+      </fieldset>
+      <p id="arrDialogError" role="status"></p><button class="solid" type="submit">確定</button>
+    </form>
+  </dialog>
+  <section class="score-overview" id="scoreOverview" aria-labelledby="scoreOverviewHeading" hidden>
+    <div class="panel-heading"><h2 id="scoreOverviewHeading">全体譜</h2><div class="publication-actions"><button id="overviewArrangement" type="button">タイムライン</button><button id="overviewPublication" type="button">作品情報</button><button id="overviewPrint" type="button">印刷プレビュー</button><button id="overviewPdf" type="button">PDF出力</button><button id="overviewCommands" type="button" aria-haspopup="dialog" aria-controls="commandPalette">操作検索</button><button id="overviewBack" type="button">パート譜へ</button></div></div>
+    <div class="overview-transport" role="group" aria-label="総譜の再生">
+      <button type="button" data-transport-action="toggle" class="solid">▶ 再生</button>
+      <button type="button" data-transport-action="stop" aria-label="再生を停止" title="停止">■</button>
+      <button type="button" data-transport-action="loop" aria-pressed="false">範囲ループ</button>
+      <button type="button" data-transport-action="mix">ミキサー</button>
+      <output data-transport-position>先頭</output>
+    </div>
+    <div class="overview-tools" id="overviewTools" aria-label="総譜の編集">
+      <div class="overview-buttons">
+        <button id="overviewSelect" type="button" aria-pressed="true">選択</button>
+        <button id="overviewEntry" type="button" aria-pressed="false">音符入力</button>
+        <label class="overview-duration">音価 <select id="overviewDuration" aria-label="総譜の入力音価"><option value="1">全音符</option><option value="2">2分</option><option value="4" selected>4分</option><option value="8">8分</option><option value="16">16分</option><option value="32">32分</option><option value="64">64分</option></select></label>
+        <button id="overviewTuplet" type="button" aria-pressed="false">3連符</button><button id="overviewTupletSettings" type="button" aria-label="連符設定" title="連符設定 [Shift+U]">⚙</button><button id="overviewRest" type="button">休符</button><button id="overviewHigher" type="button" aria-label="音高を上げる">↑</button><button id="overviewLower" type="button" aria-label="音高を下げる">↓</button>
+        <button id="overviewDelete" type="button">消去</button><button id="overviewUndo" type="button">戻す</button>
+      </div>
+      <div class="overview-buttons">
+        <button id="overviewJump" class="desktop-jump" type="button" aria-haspopup="dialog" title="小節番号へ移動（Alt+G）">小節へ</button><button id="overviewMeter" type="button" aria-haspopup="dialog">拍子</button><button id="overviewBar" type="button">小節を選択</button><button id="overviewExtend" type="button" aria-pressed="false">範囲を広げる</button>
+        <button id="overviewCopy" type="button">コピー</button><button id="overviewPaste" type="button">貼り付け</button><button id="overviewMultiPaste" type="button">複数パートへ</button>
+      </div>
+      <p id="overviewPosition"></p><p id="overviewFeedback" role="status"></p>
+    </div>
+    <div id="desktopEditOverview"></div>
+    <div id="overviewScore" tabindex="0" aria-label="編集できる総譜"></div>
+  </section>
+    <div id="rangeDirectionBar" class="range-direction-bar" hidden>
+      <span id="rangeDirectionStatus" role="status"></span>
+      <button id="rangeDirectionApply" type="button">ここまで</button>
+      <button id="rangeDirectionRemove" type="button" hidden>記号を削除</button>
+      <button id="rangeDirectionCancel" type="button">キャンセル</button>
+    </div>
+    <footer class="statusbar"><span id="statusText" role="status">準備完了</span><span>← → 移動 · ↑ ↓ 音高 · 5 四分音符 · Space 再生</span></footer>
+    <div id="toast" role="alert" class="toast hidden"></div>
+  </div>
+  <style id="engravedPageSize"></style>
+  <div id="engravedPrint" aria-hidden="true"></div>
+  <dialog class="ensemble-dialog" id="ensembleDialog" aria-labelledby="ensembleHeading">
+    <header class="ensemble-dialog-heading"><div><h2 id="ensembleHeading">スコア編成</h2><p id="ensembleSummary"></p></div><form method="dialog"><button aria-label="編成を閉じる">×</button></form></header>
+    <div class="ensemble-workbench">
+      <section class="ensemble-roster" aria-labelledby="ensembleRosterHeading">
+        <div class="ensemble-section-heading"><h3 id="ensembleRosterHeading">現在のパート</h3><button id="ensembleUndo" type="button">↶ 元に戻す</button></div>
+        <div id="ensembleList" class="ensemble-list"></div>
+        <section id="ensembleDetails" class="ensemble-details" aria-label="選択パートの設定" hidden>
+          <div class="ensemble-section-heading"><strong id="ensembleDetailName"></strong><span id="ensembleDetailInfo"></span></div>
+          <form id="ensembleRename" class="ensemble-rename"><input id="ensembleName" maxlength="120" aria-label="選択パートの名前" required><button type="submit">名前を保存</button></form>
+          <div class="ensemble-detail-actions">
+            <button id="ensembleEdit" type="button">譜面を編集</button>
+            <button id="ensembleReplace" type="button">楽器を変更</button>
+            <button id="ensembleUp" type="button" aria-label="選択パートを上へ">↑</button>
+            <button id="ensembleDown" type="button" aria-label="選択パートを下へ">↓</button>
+            <button id="ensembleRemove" class="ensemble-danger" type="button">削除</button>
+          </div>
+          <details id="ensembleSound" class="ensemble-sound" hidden>
+            <summary id="ensembleSoundStatus"></summary>
+            <form id="ensembleSoundForm">
+              <label>単音サンプル<input id="ensembleSoundFile" type="file" accept="audio/*,.wav,.mp3" required></label>
+              <label id="ensembleSoundPitch">元の実音<select id="ensembleSoundRoot"></select></label>
+              <p>WAV・MP3など · 12 MB／30秒まで。このブラウザに保存します。</p>
+              <div class="ensemble-detail-actions">
+                <button id="ensembleSoundInstall" type="submit">音源を追加</button>
+                <button id="ensembleSoundPreview" type="button">試聴</button>
+                <button id="ensembleSoundRemove" type="button" hidden>追加音源を削除</button>
+              </div>
+              <p id="ensembleSoundFeedback" role="status"></p>
+            </form>
+          </details>
+          <div id="ensembleConfirm" class="ensemble-confirm" hidden>
+            <p id="ensembleConfirmText"></p><button id="ensembleCancel" type="button">キャンセル</button><button id="ensembleConfirmAction" type="button"></button>
+          </div>
+        </section>
+      </section>
+      <section class="ensemble-library" aria-labelledby="ensembleLibraryHeading">
+        <div class="ensemble-section-heading"><h3 id="ensembleLibraryHeading">楽器を追加</h3><button id="ensembleCancelReplace" type="button" hidden>変更をやめる</button></div>
+        <details class="ensemble-template"><summary>編成プリセット</summary>
+          <p class="ensemble-preset-note">プリセットを選ぶと、編成にパートを追加します。</p>
+          <div id="ensemblePresetFilters" class="ensemble-filters" role="group" aria-label="プリセットの種類"></div>
+          <div id="ensemblePresetList" class="ensemble-presets"></div>
+          <form id="ensembleSavePreset" class="ensemble-rename">
+            <input id="ensemblePresetName" placeholder="自作プリセット名" aria-label="自作プリセット名" maxlength="60" required>
+            <button type="submit">現在の編成を保存</button>
+          </form>
+        </details>
+        <div id="ensembleSuggestions" class="ensemble-suggestions"></div>
+        <input id="ensembleSearch" type="search" placeholder="楽器を検索（例：ホルン、horn）" aria-label="楽器を検索" autocomplete="off">
+        <div id="ensembleFilters" class="ensemble-filters" role="group" aria-label="楽器の種類"></div>
+        <div id="ensembleCatalog" class="ensemble-catalog"></div>
+      </section>
+    </div>
+    <p id="ensembleFeedback" role="status"></p>
+  </dialog>
+  <dialog class="settings-panel overview-targets" id="overviewTargets" aria-labelledby="overviewTargetsHeading">
+    <header class="panel-heading"><h2 id="overviewTargetsHeading">複数パートへ貼り付け</h2><form method="dialog"><button aria-label="貼り付け先を閉じる">×</button></form></header>
+    <p id="overviewTargetPosition"></p>
+    <form id="overviewTargetForm"><fieldset id="overviewTargetList"><legend>貼り付け先</legend></fieldset><button type="submit">選んだパートに貼り付け</button></form>
+    <p id="overviewTargetError" role="status"></p>
+  </dialog>
+  <dialog class="publication-dialog" id="publicationDialog" aria-labelledby="publicationHeading">
+    <header class="panel-heading"><h2 id="publicationHeading">作品情報・表紙</h2><form method="dialog"><button aria-label="作品情報を閉じる">編集に戻る</button></form></header>
+    <div class="publication-workspace">
+      <form id="publicationForm" class="publication-form">
+        <section>
+          <h3>作品情報</h3>
+          <label>曲名<input name="title" maxlength="200" required></label>
+          <label>副題・英題<input name="subtitle" maxlength="200"></label>
+          <label>作曲者<input name="composer" maxlength="200"></label>
+          <label>作曲者の別表記<input name="composerAlt" maxlength="200"></label>
+          <label>シリーズ・作品番号<input name="series" maxlength="120"></label>
+          <label>発行元・クレジット<input name="credit" maxlength="200"></label>
+        </section>
+        <section>
+          <h3>作曲者コメント・編成表</h3>
+          <label>作曲者コメント<textarea name="comment" rows="4" maxlength="6000"></textarea></label>
+          <label>編成表<select id="publicationRosterMode"><option value="auto">自動生成</option><option value="custom">手動編集</option></select></label>
+          <label id="publicationRosterCustom" hidden>編成表の内容<textarea name="instrumentation" rows="6" maxlength="4000"></textarea></label>
+        </section>
+        <section>
+          <h3>ページ設定</h3>
+          <div class="publication-fields">
+            <label>表紙<select name="cover"><option value="auto">自動</option><option value="show">表示</option><option value="hide">省略</option></select></label>
+            <label>解説・編成ページ<select name="notes"><option value="auto">自動</option><option value="show">表示</option><option value="hide">省略</option></select></label>
+            <label>タイトル位置<select name="align"><option value="center">中央</option><option value="left">左</option></select></label>
+            <label>用紙<select name="paper"><option value="auto">自動</option><option value="a4">A4</option><option value="a3">A3</option></select></label>
+            <label>譜表の楽器名<select name="names"><option value="auto">初回は正式名、以降は略称</option><option value="full">常に正式名</option><option value="short">常に略称</option><option value="hide">非表示</option></select></label>
+            <label>五線譜の横幅<select name="width"><option value="">自動</option><option value="100">広め</option><option value="90">標準</option><option value="80">ゆとり</option><option value="70">狭め</option></select></label>
+          </div>
+          <details class="publication-footer-settings" open><summary>フッター・ページ番号</summary>
+            <label>著作権表記<input name="copyright" maxlength="240" placeholder="例：© 2026 作曲者名"></label>
+            <div class="publication-fields">
+              <label>テンプレート<select name="footerStyle"><option value="auto">自動</option><option value="none">なし</option><option value="page">ページ番号</option><option value="pageTotal">ページ番号 / 総ページ数</option><option value="copyright">著作権表記のみ</option><option value="combined">著作権表記とページ番号</option><option value="custom">自由入力</option></select></label>
+              <label>配置<select name="footerAlign"><option value="auto">自動</option><option value="left">左</option><option value="center">中央</option><option value="right">右</option></select></label>
+              <label>開始番号<input name="pageStart" type="number" min="1" max="9999" placeholder="1"></label>
+              <label>対象ページ<select name="footerScope"><option value="auto">総譜のみ</option><option value="all">表紙・解説も含める</option></select></label>
+            </div>
+            <label id="publicationFooterCustom" hidden>フッターの内容<input name="footerText" maxlength="280" placeholder="{title} · {page} / {pages}"><small>{title} 曲名、{page} ページ番号、{pages} 総ページ数、{copyright} 著作権表記</small></label>
+          </details>
+          <details><summary>譜表ごとの正式名・略称</summary><div id="publicationPartNames"></div></details>
+        </section>
+        <footer><button id="publicationReset" type="button">配置を自動に戻す</button><button type="submit">変更を保存</button></footer>
+        <p id="publicationStatus" role="status"></p>
+      </form>
+      <section class="publication-preview" aria-label="レイアウトプレビュー">
+        <label for="publicationPage">プレビュー</label><select id="publicationPage"><option value="score">総譜</option><option value="cover">表紙</option><option value="notes">解説・編成</option></select>
+        <div id="publicationPreview"></div>
+      </section>
+    </div>
+  </dialog>
+  <div id="scoreContextMenu" class="score-context-menu" popover="manual" role="menu" aria-label="楽譜の操作">
+    <div id="scoreContextNotes" class="score-context-notes">
+      <span id="scoreContextLabel"></span>
+      <div class="score-context-grid">
+        <button type="button" role="menuitem" data-score-action="shorter">音価 −</button>
+        <button type="button" role="menuitem" data-score-action="longer">音価 ＋</button>
+        <button type="button" role="menuitem" data-score-action="lower">音高 ↓</button>
+        <button type="button" role="menuitem" data-score-action="higher">音高 ↑</button>
+      </div>
+      <button type="button" role="menuitem" data-score-action="rest">音符 ⇄ 休符 <kbd>R</kbd></button>
+      <button type="button" role="menuitem" data-score-action="tie">タイ <kbd>T</kbd></button>
+      <button type="button" role="menuitem" data-score-action="slur">スラー <kbd>S</kbd></button>
+      <button type="button" role="menuitem" data-score-action="crescendo">クレッシェンド</button>
+    </div>
+    <div id="scoreContextMeasures" class="score-context-measures">
+      <span id="scoreContextMeasureLabel"></span>
+      <button type="button" role="menuitem" data-score-action="meter">拍子・変拍子を設定</button>
+      <button type="button" role="menuitem" data-score-action="insert">前に小節を挿入</button>
+      <button type="button" role="menuitem" data-score-action="duplicate">小節を複製</button>
+      <button type="button" role="menuitem" data-score-action="copyBars">小節をコピー（全パート）</button>
+      <button type="button" role="menuitem" data-score-action="clear">小節の内容を消去</button>
+      <button type="button" role="menuitem" data-score-action="remove">小節を削除</button>
+    </div>
+    <button type="button" role="menuitem" data-score-action="measure">小節を選択</button>
+    <button type="button" role="menuitem" data-score-action="pasteBars">ここに小節を貼り付け</button>
+    <button id="scoreContextErase" type="button" role="menuitem" data-score-action="erase">音符・休符を消去</button>
+    <button type="button" role="menuitem" data-score-action="copy">コピー <kbd>Ctrl+C</kbd></button>
+    <button type="button" role="menuitem" data-score-action="paste">貼り付け <kbd>Ctrl+V</kbd></button>
+  </div>
+  <dialog id="scoreImportDialog" class="settings-panel score-import-dialog" aria-labelledby="scoreImportHeading">
+    <div class="panel-heading"><h2 id="scoreImportHeading">MusicXMLの読み込み</h2></div>
+    <p id="scoreImportSummary"></p>
+    <ul id="scoreImportWarnings"></ul>
+    <div class="file-dialog-actions">
+      <form method="dialog"><button type="submit">キャンセル</button></form>
+      <button id="scoreImportSave" type="button">現在の譜面を保存</button>
+      <button id="scoreImportApply" type="button" class="solid">読み込んだ譜面を開く</button>
+    </div>
+  </dialog>
+  <dialog id="mediaDialog" class="settings-panel media-dialog" aria-labelledby="mediaHeading">
+    <div class="panel-heading"><h2 id="mediaHeading">動画・音声プレーヤー</h2><button id="mediaClose" type="button" aria-label="動画・音声を閉じる">×</button></div>
+    <label for="mediaFile">端末のファイルを選ぶ</label>
+    <input id="mediaFile" type="file" accept="video/*,audio/*,.mp4,.mov,.webm,.mp3,.wav,.m4a">
+    <p id="mediaFeedback" role="status">MP4、WebM、MP3、WAVなど、ブラウザが再生できるファイルを開けます。</p>
+    <video id="mediaVideo" controls playsinline preload="metadata" aria-label="読み込んだ動画" hidden></video>
+    <audio id="mediaAudio" controls preload="metadata" aria-label="読み込んだ音声" hidden></audio>
+    <p class="panel-hint">ファイルは端末内で再生します。</p>
+  </dialog>
+  <dialog class="print-preview-dialog" id="printPreviewDialog" aria-labelledby="printPreviewHeading">
+    <header class="panel-heading"><div><h2 id="printPreviewHeading">印刷プレビュー</h2><p id="printPreviewInfo"></p></div>
+      <div class="publication-actions"><button type="button" id="previewPdf">PDF出力</button><form method="dialog"><button aria-label="印刷プレビューを閉じる">編集に戻る</button></form></div>
+    </header>
+    <label class="print-target">出力対象 <select id="previewPrintTarget"></select></label>
+    <div id="printPreviewPages"></div>
+  </dialog>
+  <dialog class="settings-panel" id="collabPanel" aria-labelledby="collabHeading"><div class="panel-heading"><h2 id="collabHeading">友だちと共同編集</h2><button data-close-panel aria-label="共同編集パネルを閉じる">×</button></div><label for="collabName">表示名（必須）</label><input id="collabName" required maxlength="40" placeholder="あなたの名前" autocomplete="nickname" aria-describedby="collabNameHint"><p id="collabNameHint" class="panel-hint">表示名を入力してからルームを作成・参加します。</p><button id="collabCreate" disabled>この楽譜のルームを作る</button><label for="collabInvite">招待リンク</label><textarea id="collabInvite" rows="2" placeholder="友だちからの招待リンクを貼り付け"></textarea><div class="collab-actions"><button id="collabJoin" disabled>名前を確認して参加</button><button id="collabCopy" hidden>リンクをコピー</button></div><figure id="collabQr" class="collab-qr" hidden><div id="collabQrCode"></div><figcaption>スマホのカメラで読み取って参加</figcaption></figure><p class="panel-hint">招待リンクかQRコードで同じ楽譜を開けます。ルームは作成から30日間利用できます。</p><p id="collabStatus" role="status">ルームを作るか招待リンクから参加してください。</p><strong id="collabCount"></strong><div id="collabPeers"></div><div id="collabConflict" hidden><p>自分の変更はこの画面に残っています。保存してから共有版を読み直してください。</p><button id="collabResolve">共有版を読み直す</button></div><div class="collab-actions"><button id="collabSaveLocal" hidden>自分の編集を保存</button><button id="collabLeave" hidden>退出して自分の楽譜に戻る</button><button id="collabRotate" hidden>招待リンクを更新</button><button id="collabEnd" hidden>ルームを終了</button></div></dialog>
+  <section id="performancePanel" class="performance-panel" aria-label="演奏・コード入力" hidden>
+    <div class="panel-heading"><h2>演奏・コード入力</h2><button id="performanceClose" type="button" aria-label="演奏・コード入力を閉じる">×</button></div>
+    <div class="performance-modes" role="group" aria-label="入力方法">
+      <button data-performance-mode="step" aria-pressed="true">ステップ</button><button data-performance-mode="record" aria-pressed="false">リアルタイム</button><button data-performance-mode="chord" aria-pressed="false">コード</button>
+    </div>
+    <div id="performanceKeys">
+      <div class="performance-row"><button id="performanceMidi" type="button">MIDIを接続</button><label id="performanceDeviceLabel" hidden>入力機器 <select id="performanceDevice"></select></label></div>
+      <p id="performanceHint">MIDI鍵盤か下の鍵盤で、現在の音価の音符を入力します。同時に弾くと和音になります。</p>
+      <div id="performanceRecordTools" hidden>
+        <div class="performance-row"><label>最小音価 <select id="performanceGrid"><option value="4">4分</option><option value="8">8分</option><option value="16" selected>16分</option><option value="32">32分</option></select></label><label><input id="performanceClick" type="checkbox" checked> メトロノーム</label></div>
+        <div class="performance-row"><button id="performanceStart" class="solid" type="button">録音開始</button><button id="performanceCancel" type="button" hidden>破棄</button></div>
+      </div>
+      <div class="performance-row"><button id="performanceOctaveDown" type="button" aria-label="画面鍵盤を1オクターブ下げる">−8度</button><output id="performanceKeyboardRange"></output><button id="performanceOctaveUp" type="button" aria-label="画面鍵盤を1オクターブ上げる">＋8度</button></div>
+      <div id="performancePiano" class="performance-piano" aria-label="画面鍵盤"></div>
+    </div>
+    <form id="performanceChord" hidden>
+      <div class="performance-row"><label>ルート <select id="performanceRoot"></select></label><label>種類 <select id="performanceQuality"></select></label><label>オクターブ <select id="performanceChordOctave"></select></label></div>
+      <label class="performance-symbol">コード名 <input id="performanceSymbol" value="C" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Cmaj7、B♭m7、D/F♯"></label>
+      <output id="performanceChordNotes" aria-live="polite"></output><div class="performance-row"><button id="performanceInsertChord" type="submit" class="solid">和音を入力</button><button id="performanceWriteSymbol" type="button">コード名を記譜</button></div>
+    </form>
+    <output id="performanceStatus" class="performance-status" role="status"></output>
+  </section>
+  <dialog class="settings-panel" id="scoreSettings" aria-labelledby="scoreSettingsHeading"><div class="panel-heading"><h2 id="scoreSettingsHeading">楽譜の設定</h2><button data-close-panel aria-label="楽譜の設定を閉じる">×</button></div><label class="instrument-language" for="instrumentLanguage">楽器名の表示 <select id="instrumentLanguage"><option value="en">英語</option><option value="ja">日本語</option></select></label><div class="overwrite-setting">
+      <label for="overwriteMode"><input type="checkbox" id="overwriteMode" aria-describedby="overwriteHint"> 上書きモード</label>
+      <p id="overwriteHint" class="panel-hint">入力した音価の範囲にある音符・休符を置き換えます。スマホでは音符を選び、音価を決めてから「＋音符」または「＋休符」を押します。</p>
+    </div><div class="settings-grid"><div class="controlblock"><label for="clefSelect">音部記号</label><select id="clefSelect"><option value="treble">ト音記号</option><option value="bass">ヘ音記号</option><option value="alto">ハ音・アルト</option><option value="tenor">ハ音・テナー</option><option value="percussion">ニュートラル（打楽器）</option></select></div><div class="controlblock"><label for="staffLines">譜線</label><select id="staffLines"><option value="5">5線譜</option><option value="1">1線譜</option><option value="2">2線譜</option><option value="3">3線譜</option><option value="4">4線譜</option></select></div><div class="controlblock"><label for="transposition">記譜音 → 実音</label><select id="transposition"></select></div><div class="controlblock"><label for="notehead">符頭</label><select id="notehead"><option value="normal">通常</option><option value="cross">×</option></select></div><div class="controlblock"><label for="partName">パート名</label><input id="partName" maxlength="120" aria-label="パート名"></div><div class="controlblock"><label for="composerInput">作曲者</label><input id="composerInput" maxlength="200" placeholder="作曲者を入力"></div></div></dialog>
+  <dialog class="settings-panel mix-dialog" id="mixDialog" aria-labelledby="mixHeading">
+    <div class="panel-heading"><h2 id="mixHeading">再生ミキサー</h2><button id="mixClose" type="button" aria-label="ミキサーを閉じる">×</button></div>
+    <div class="mix-transport" role="group" aria-label="再生操作">
+      <button type="button" data-transport-action="toggle" class="solid">▶ 再生</button>
+      <button type="button" data-transport-action="stop" aria-label="再生を停止" title="停止">■</button>
+      <button type="button" data-transport-action="from">選択位置から</button>
+      <button type="button" data-transport-action="loop" aria-pressed="false">範囲ループ</button>
+      <output data-transport-position aria-live="off">先頭</output>
+    </div>
+    <div class="mix-controls">
+      <label for="mixScope">再生対象 <select id="mixScope"><option value="all">全パート</option><option value="part">編集中のパート</option></select></label>
+      <label for="mixRate">速度 <select id="mixRate"><option value=".5">50%</option><option value=".65">65%</option><option value=".75">75%</option><option value=".9">90%</option><option value="1" selected>100%</option><option value="1.15">115%</option><option value="1.25">125%</option></select></label>
+      <label for="mixFollow"><input id="mixFollow" type="checkbox" checked> 譜面を自動追従</label>
+      <button type="button" id="mixAudioSource">音源設定</button>
+    </div>
+    <label for="mixMaster" class="mix-master">全体音量 <input id="mixMaster" type="range" min="0" max="150" value="100"><output id="mixMasterValue">100%</output></label>
+    <label for="mixRoom" class="mix-master">響き <input id="mixRoom" type="range" min="0" max="35" value="8"><output id="mixRoomValue">8%</output></label>
+    <details id="mixMastering" class="mix-mastering">
+      <summary>マスタリング</summary>
+      <div class="mix-mastering-body">
+        <div class="mix-master-meter">
+          <label for="mixPeak">出力ピーク</label>
+          <meter id="mixPeak" min="-60" max="0" low="-35" high="-3" optimum="-12" value="-60"></meter>
+          <output id="mixPeakValue" aria-live="off">−∞ dBFS</output>
+        </div>
+        <label for="mixDrive" class="mix-master">増幅 <input id="mixDrive" type="range" min="-18" max="24" step=".5" value="0"><output id="mixDriveValue" aria-live="off">0 dB</output></label>
+        <label for="mixLow" class="mix-master">低音 EQ <input id="mixLow" type="range" min="-12" max="12" step=".5" value="0"><output id="mixLowValue" aria-live="off">0 dB</output></label>
+        <label for="mixHigh" class="mix-master">高音 EQ <input id="mixHigh" type="range" min="-12" max="12" step=".5" value="0"><output id="mixHighValue" aria-live="off">0 dB</output></label>
+        <div class="mix-limiter-switch">
+          <label><input id="mixLimiter" type="checkbox" checked> リミッター</label>
+          <output id="mixReduction" aria-label="リミッターで抑えた量" aria-live="off"></output>
+        </div>
+        <label for="mixCeiling" class="mix-master">出力上限 <input id="mixCeiling" type="range" min="-12" max="-.1" step=".1" value="-1"><output id="mixCeilingValue" aria-live="off">−1 dBFS</output></label>
+        <button id="mixMasteringReset" type="button">マスタリングを初期化</button>
+      </div>
+    </details>
+    <div id="mixTracks" aria-label="パート別ミキサー"></div>
+    <button id="mixReset" type="button">ミックスを初期化</button>
+  </dialog>
+  <dialog class="settings-panel" id="soundSettings" aria-labelledby="soundSettingsHeading"><div class="panel-heading"><h2 id="soundSettingsHeading">再生音源</h2><button data-close-panel aria-label="再生音源を閉じる">×</button></div><div class="instrument-box"><label for="instrument">再生音源</label><select id="instrument"></select><small id="soundDescription"></small><button id="soundPreview" class="outline wide" title="選択した音源を試聴">◖ 音色を試聴</button></div><details id="soundMap" class="sound-map" hidden><summary>打面の対応・入力</summary><div id="percussionPads" class="percussion-pads"></div><p>C〜Gの音名を打面に対応させます。音源を変えても譜面は変わりません。</p></details><p class="panel-hint">音源の変更では譜面は変わりません。</p><a class="license-link" href="vendor/lamejs.NOTICE.txt" target="_blank" rel="noopener">MP3エンコーダーのライセンス</a> <a class="license-link" href="samples/ATTRIBUTION.md" target="_blank" rel="noopener">音源の出典・ライセンス</a></dialog>
+  <dialog class="settings-panel" id="helpPanel" aria-labelledby="helpHeading"><div class="panel-heading"><h2 id="helpHeading">操作ガイド</h2><button data-close-panel aria-label="操作ガイドを閉じる">×</button></div><div class="side-tip"><strong>Finale風・入力のコツ</strong><p>左のパレットまたは 1–7 で音価を選びます。五線上で薄い音符が動き、クリックするとその拍に入力されます。入力済み音符はクリックで選択、上下にドラッグして音高を変更、← → で音符・休符を移動できます。Shift+クリック・Shift+←→で範囲選択。Ctrl+クリックなら休符を1つ選択できます。</p></div><details class="keyboard-help" open><summary>操作キー</summary><dl><dt>Shift＋← / →</dt><dd>範囲を広げる・縮める</dd><dt>Ctrl＋A</dt><dd>すべて選択</dd><dt>Ctrl＋C / X / V</dt><dd>コピー / 切り取り / 貼り付け</dd><dt>Alt＋G</dt><dd>小節番号へ移動。操作検索でも b32 や「32小節」と入力できます</dd><dt>Alt＋↑ / ↓</dt><dd>全体譜の上 / 下のパートへ。同じ小節・拍を基準に移動</dd><dt>Ctrl＋← / →</dt><dd>前後の小節へ</dd><dt>Ctrl＋Home / End</dt><dd>楽譜の先頭 / 末尾へ</dd><dt>0・Shift＋Enter</dt><dd>休符を入力</dd><dt>R</dt><dd>音符 ⇄ 休符</dd><dt>S</dt><dd>スラーの終点を選ぶ。← / → で移動し、Enter で確定</dd><dt>T</dt><dd>同じ高さの次の音符とタイでつなぐ／外す</dd><dt>U / Shift＋U</dt><dd>連符入力のオン・オフ / 連符設定を変更</dd><dt>＋ / －</dt><dd>半音上下（テンキーも対応）</dd><dt>Shift＋A〜G</dt><dd>和音に音を追加</dd><dt>Ctrl＋K</dt><dd>操作を検索</dd><dt>/ / Shift＋/</dt><dd>連桁の区切り / 自動</dd><dt>L / Shift＋L</dt><dd>符幹を反転 / 自動に戻す</dd><dt>.</dt><dd>入力・選択モードで付点を切り替え</dd><dt>8 / 9</dt><dd>選択した音符・範囲を1オクターブ下 / 上へ</dd><dt>Shift＋↓ / ↑</dt><dd>入力モードでは次の入力音を、選択モードでは選んだ音符を1オクターブ下 / 上へ</dd></dl></details><p class="panel-hint">スマホ：音符をタップして選び、画面下の矢印かスワイプで音高・音価を変更。「記号」でアクセントなどを付けられます。スマホでは五線上で横にフリックするか、矢印で前後の小節へ移動できます。「全体譜」で全小節を確認できます。2本指で拡大・縮小できます。タッチパッド：ピンチ／2本指スクロール。マウス：Ctrl＋ホイールで拡大、中央ボタンのドラッグで移動。Hで手のひらツール、Ctrl＋0で100%に戻します。</p><p class="panel-hint">複数パートの編成に対応しています。「＋ 第2声部」で、選んでいる小節に別のリズムを書けます。小節を移動すると第1声部に戻ります。オフラインでも使用できます。</p></dialog>
+  <dialog id="symbolPalette" class="symbol-palette" aria-labelledby="symbolHeading">
+    <div class="panel-heading"><h2 id="symbolHeading">記号の詳細</h2><form method="dialog"><button aria-label="記号パレットを閉じる">×</button></form></div>
+    <p id="symbolContext" class="panel-hint"></p>
+    <div id="symbolCategories" class="palette-filters" role="group" aria-label="記号の種類"></div>
+    <input id="symbolSearch" type="search" placeholder="記号名で絞り込み" aria-label="記号名で絞り込み">
+    <div id="symbolResults" class="symbol-results"></div>
+    <section id="symbolPlaced" hidden><h3>この位置の指示記号</h3><div id="symbolPlacedList" class="symbol-results"></div></section>
+    <form id="symbolCustom" hidden><label for="symbolCustomText">自由入力</label><input id="symbolCustomText" maxlength="100" placeholder="任意の文字指示"><button>配置</button></form>
+  </dialog>
+  <dialog id="measureJumpDialog" class="tuplet-dialog measure-jump" aria-labelledby="measureJumpHeading">
+    <div class="panel-heading"><h2 id="measureJumpHeading">小節へ移動</h2><form method="dialog"><button aria-label="小節移動を閉じる">×</button></form></div>
+    <form id="measureJumpForm">
+      <label id="measureJumpPartRow" hidden>パート <select id="measureJumpPart"></select></label>
+      <label for="measureJumpInput">小節番号</label>
+      <input id="measureJumpInput" type="text" maxlength="6" inputmode="numeric" autocomplete="off" autofocus aria-describedby="measureJumpHint measureJumpError">
+      <p id="measureJumpHint" class="panel-hint"></p>
+      <p id="measureJumpError" class="tuplet-error" role="alert"></p>
+      <button id="measureJumpApply" type="submit">移動</button>
+    </form>
+  </dialog>
+  <dialog id="meterDialog" class="tuplet-dialog meter-dialog" aria-labelledby="meterHeading">
+    <div class="panel-heading"><h2 id="meterHeading">拍子を設定</h2><form method="dialog"><button aria-label="拍子設定を閉じる">×</button></form></div>
+    <p id="meterLocation" class="tuplet-location"></p>
+    <form id="meterForm">
+      <label for="meterSequence">拍子・繰り返しパターン</label>
+      <input id="meterSequence" type="text" maxlength="128" autocomplete="off" spellcheck="false" placeholder="4/4 + 3/4" required>
+      <div class="meter-presets" aria-label="拍子の候補">
+        <button type="button" data-meter-preset="4/4">4/4</button>
+        <button type="button" data-meter-preset="3/4">3/4</button>
+        <button type="button" data-meter-preset="5/4">5/4</button>
+        <button type="button" data-meter-preset="6/8">6/8</button>
+        <button type="button" data-meter-preset="7/8">7/8</button>
+        <button type="button" data-meter-preset="4/4 + 3/4">4/4 → 3/4</button>
+        <button type="button" id="meterSaved" data-meter-preset="" hidden></button>
+      </div>
+      <fieldset class="meter-scope">
+        <legend>適用範囲</legend>
+        <label><input type="radio" name="meterScope" value="one" checked> この小節だけ</label>
+        <label><input type="radio" name="meterScope" value="count"> 指定した小節数</label>
+        <label><input type="radio" name="meterScope" value="tail"> ここからずっと</label>
+      </fieldset>
+      <label id="meterCountRow" hidden>小節数 <input id="meterCount" type="number" min="1" step="1" value="2" inputmode="numeric"></label>
+      <p id="meterPreview" class="panel-hint" aria-live="polite"></p>
+      <p id="meterError" class="tuplet-error" role="alert"></p>
+      <button id="meterApply" type="submit">適用</button>
+    </form>
+  </dialog>
+  <dialog id="tupletDialog" class="tuplet-dialog" aria-labelledby="tupletHeading">
+    <div class="panel-heading"><h2 id="tupletHeading">連符設定</h2><form method="dialog"><button aria-label="連符設定を閉じる">×</button></form></div>
+    <form id="tupletSetup" class="tuplet-setup">
+      <label>連符の種類<select id="tupletCount" autofocus>
+        <option value="2">2連符（2:3）</option><option value="3" selected>3連符（3:2）</option>
+        <option value="4">4連符（4:3）</option><option value="5">5連符（5:4）</option><option value="6">6連符（6:4）</option>
+        <option value="custom">詳細設定（7連符以上）</option>
+      </select></label>
+      <label>基準の音価<select id="tupletDuration"></select></label>
+      <fieldset id="tupletCustom" hidden>
+        <legend>連符の比率</legend>
+        <label>音符の個数<input id="tupletCustomCount" type="number" min="7" step="1" inputmode="numeric" required disabled></label>
+        <label>何個分の長さにするか<input id="tupletCustomNormal" type="number" min="1" step="1" inputmode="numeric" required disabled></label>
+      </fieldset>
+      <figure class="tuplet-preview">
+        <div id="tupletPreview" aria-hidden="true"></div>
+        <figcaption id="tupletPreviewCaption" aria-live="polite"></figcaption>
+      </figure>
+      <div class="tuplet-presets">
+        <button type="button" id="tupletOneBeat">1拍3連</button>
+        <button type="button" id="tupletTwoBeats">2拍3連</button>
+        <button id="tupletStart" type="submit">設定を保存</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="commandPalette" class="command-palette" aria-labelledby="commandHeading">
+    <div class="panel-heading"><h2 id="commandHeading">コマンドパレット</h2><button id="commandClose" aria-label="コマンドパレットを閉じる">×</button></div>
+    <input id="commandSearch" type="search" placeholder="操作名・ショートカットで検索" aria-label="操作を検索" autocomplete="off" role="combobox" aria-controls="commandResults" aria-expanded="true" aria-autocomplete="list">
+    <div id="commandCategories" class="palette-filters" role="group" aria-label="コマンドの種類"></div>
+    <p id="commandContext" class="command-context" hidden></p>
+    <div id="commandResults" class="command-results" role="listbox" aria-label="操作の候補"></div>
+    <p class="command-hint">↑ ↓ で選択 ・ Enter で実行 ・ Esc で閉じる</p>
+  </dialog>
+</body>
+</html>

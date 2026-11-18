@@ -1,0 +1,40 @@
+// node tests/score-editing.browser.cjs <playwright-core path> <Chromium executable> [screenshot]
+const {chromium}=require(process.argv[2]||'playwright-core'),assert=require('node:assert/strict');
+(async()=>{const browser=await chromium.launch({headless:true,...(process.argv[3]?{executablePath:process.argv[3]}:{})});try{
+const page=await browser.newPage({viewport:{width:1550,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('http://127.0.0.1:5173');await page.waitForFunction(()=>window.__kanadeDev&&window.KanadeEditing);
+const snap=()=>page.evaluate(()=>window.__kanadeDev.capture());
+async function reset(bars=3){await page.evaluate(bars=>{const C=window.KanadeCore,score=C.createScore();score.title='スコア編集・範囲選択';score.measures=[];
+ for(let mi=0;mi<bars;mi++)score.measures.push({id:C.uid(),events:['C','D','E','F'].map(step=>C.makeNote({step,octave:4,alter:0},4))});
+ const t=window.__kanadeDev.capture();Object.assign(t,{score,selected:score.measures[0].events[0].id,activeMeasure:0,caret:{mi:0,index:0},undo:[],redo:[],den:4,dots:0,octave:4,alter:'auto',editMode:'entry',lastEnteredId:null,selectionRange:null,rangeAnchor:null,clipboard:null});window.__kanadeDev.restore(t);},bars);}
+await reset();const original=(await snap()).score;
+for(let i=0;i<4;i++)await page.keyboard.press('Shift+ArrowRight');
+assert.deepEqual((await snap()).selectionRange,{start:0,end:4800});assert.equal(await page.locator('#scoreHost .score-note[data-selected="1"]').count(),5);
+await page.keyboard.press('Shift+ArrowUp');assert.deepEqual((await snap()).score.measures.flatMap(m=>m.events.map(e=>e.pitches[0].octave)),[5,5,5,5,5,4,4,4,4,4,4,4]);
+await page.keyboard.press('Control+z');assert.deepEqual((await snap()).score,original);assert.deepEqual((await snap()).selectionRange,{start:0,end:4800});
+await page.keyboard.press('+');assert.deepEqual((await snap()).score.measures[0].events.map(e=>e.pitches[0].alter),[1,1,1,1]);await page.keyboard.press('Control+z');
+await page.keyboard.press('Control+c');const saved=await snap();await page.evaluate(s=>window.__kanadeDev.restore(s),saved);assert.deepEqual((await snap()).clipboard,saved.clipboard);
+await page.keyboard.press('Control+ArrowRight');assert.equal((await snap()).caret.mi,2);assert.equal((await snap()).selectionRange,null);
+await page.keyboard.press('Control+v');let t=await snap();assert.equal(t.score.measures.length,4);assert.notEqual(t.score.measures[2].events[0].id,original.measures[0].events[0].id);assert.equal(t.score.measures[3].events[0].pitches[0].step,'C');
+await page.keyboard.press('Control+z');assert.deepEqual((await snap()).score,original);await page.keyboard.press('Control+y');assert.equal((await snap()).score.measures.length,4);
+console.log('PASS: cross-measure range, batch octave/semitone transpose, clipboard retained on dev reload, paste appends bars, Undo/Redo');
+await reset();await page.keyboard.press('Shift+ArrowRight');await page.keyboard.press('Shift+ArrowRight');await page.keyboard.press('Control+x');
+t=await snap();assert.deepEqual(t.score.measures[0].events.map(e=>e.type),['rest','rest','rest','note']);const untouched=t.score.measures[1].events[3].id;
+await page.keyboard.press('Control+ArrowRight');await page.keyboard.press('Control+v');t=await snap();assert.deepEqual(t.score.measures[1].events.map(e=>e.pitches[0].step),['C','D','E','F']);assert.equal(t.score.measures[1].events[3].id,untouched);
+await page.keyboard.press('Control+a');await page.keyboard.press('Delete');t=await snap();assert.equal(t.score.measures.length,3);assert.equal(t.score.measures.flatMap(m=>m.events).filter(e=>e.type==='note').length,0);await page.keyboard.press('Control+z');assert.ok((await snap()).score.measures[1].events.some(e=>e.type==='note'));
+console.log('PASS: cut/paste preserves outside notes and beats; Ctrl+A Delete clears without removing measures');
+await reset(2);const bars=(await snap()).score;await page.locator('#editMenu summary').click();await page.locator('#selectMeasure').click();await page.locator('#editMenu summary').click();await page.locator('#duplicateMeasures').click();t=await snap();assert.equal(t.score.measures.length,3);assert.notEqual(t.score.measures[1].id,bars.measures[0].id);
+await page.locator('#editMenu summary').click();await page.locator('#removeMeasure').click();assert.deepEqual((await snap()).score,bars);
+await page.locator('#editMenu summary').click();await page.locator('#insertMeasureBefore').click();t=await snap();assert.equal(t.score.measures.length,3);assert.equal(t.score.measures[1].events.length,0);assert.equal(t.score.measures[2].id,bars.measures[1].id);
+await page.keyboard.press('Control+z');assert.deepEqual((await snap()).score,bars);
+await page.keyboard.press('Control+a');await page.locator('#editMenu summary').click();await page.locator('#removeMeasure').click();assert.equal((await snap()).score.measures.length,1);assert.equal((await snap()).score.measures[0].events.length,0);
+console.log('PASS: measure selection, duplicate/insert/delete and Undo, deleting all measures leaves an editable bar');
+await reset(1);await page.keyboard.press('v');await page.locator('#scoreHost [data-event-index="2"]').click({modifiers:['Shift']});assert.deepEqual((await snap()).selectionRange,{start:0,end:2880});
+await page.keyboard.press('Escape');assert.equal((await snap()).selectionRange,null);
+await page.keyboard.press('n');await page.keyboard.press('Control+a');await page.keyboard.press('r');assert.equal((await snap()).score.measures[0].events.filter(e=>e.type==='rest').length,4);await page.keyboard.press('r');assert.equal((await snap()).score.measures[0].events.filter(e=>e.type==='note').length,4);
+const anchorBefore=(await snap()).rangeAnchor;await page.keyboard.press('Alt+4');assert.ok((await snap()).score.measures[0].events.filter(e=>e.type==='note').every(e=>e.den===8));await page.keyboard.press('Control+z');assert.deepEqual((await snap()).rangeAnchor,anchorBefore);
+await page.locator('#titleInput').click();await page.keyboard.press('Control+a');assert.equal(await page.locator('#titleInput').evaluate(e=>e.selectionEnd-e.selectionStart),await page.locator('#titleInput').inputValue().then(s=>s.length));
+await page.locator('#titleInput').press('Tab');await page.keyboard.press('Control+a');
+await page.emulateMedia({media:'print'});assert.equal(await page.locator('#kanade-caret-layer').evaluate(e=>getComputedStyle(e).display),'none');assert.equal(await page.locator('#scoreHost .score-note').first().evaluate(e=>getComputedStyle(e).color),'rgb(27, 38, 56)');await page.emulateMedia({media:'screen'});
+if(process.argv[4])await page.screenshot({path:process.argv[4],fullPage:true});
+assert.deepEqual(errors,[]);assert.equal(await page.locator('.toast:not(.hidden)').count(),0);console.log('PASS: mouse range, Escape, bulk rest toggle/duration, native text selection, no runtime errors or routine notifications');
+}finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1)});

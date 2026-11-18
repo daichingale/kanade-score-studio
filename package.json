@@ -1,0 +1,12 @@
+{
+  "name": "kanade-local",
+  "version": "0.2.1",
+  "private": true,
+  "description": "Kanade Finale-style score editor, persistent local workspace",
+  "scripts": {
+    "dev": "node scripts/dev.mjs --open",
+    "serve": "node scripts/dev.mjs",
+    "test": "node scripts/test.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

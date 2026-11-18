@@ -1,0 +1,10 @@
+Kanade uses LAME through the unmodified @breezystack/lamejs 1.2.7 browser build.
+LAME project: https://lame.sourceforge.io/
+JavaScript port: https://github.com/breezystack/lamejs
+Source revision for the distributed package:
+https://github.com/shijinyu/lamejs/tree/1fb0ef5fa177413107e2e107d054a9b994e3f79c
+Exact upstream release with the distributed build and unminified module:
+https://registry.npmjs.org/@breezystack/lamejs/-/lamejs-1.2.7.tgz
+
+The encoder is a separate, replaceable script imported by the MP3 worker.
+It is licensed under LGPL 3.0. See lamejs.LGPL-3.txt and lamejs.GPL-3.txt.
