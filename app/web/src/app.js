@@ -2066,6 +2066,7 @@
     ['再生音源を変更','sound instrument ongen',()=>window.KanadeWorkspace.openPanel('soundSettings'),''],
     ['音符の詳細を表示／閉じる','properties inspector shousai',()=>window.KanadeWorkspace.toggleInspector(),''],
     ['操作ガイド','help guide sousa',()=>window.KanadeWorkspace.openPanel('helpPanel'),''],
+    ['AI相談を表示','ai chat ollama soudan 吹奏楽 相談',()=>window.KanadeAgentUI?.toggle(),'Ctrl+J'],
     ['楽譜ファイルを開く','open hiraku',()=>$('openBtn').click(),''],
     ['WAV音声を書き出す','wav export',()=>exportAs('wav'),''],
     ['MP3音声を書き出す','mp3 export',()=>exportAs('mp3'),''],
@@ -3106,6 +3107,15 @@
     document.addEventListener('keydown',e=>{
       const target=e.target;
       const editing=['INPUT','TEXTAREA','SELECT'].includes(target.tagName)||target.isContentEditable;
+      const inAgent=!!target.closest?.('#agentPanel');
+      if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='j'&&!e.repeat&&!e.isComposing){
+        e.preventDefault();window.KanadeAgentUI?.toggle();return;
+      }
+      if(inAgent){
+        if((e.ctrlKey||e.metaKey)&&!e.altKey&&e.key.toLowerCase()==='s'){e.preventDefault();save();return;}
+        if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='k'){e.preventDefault();toggleCommands();return;}
+        return;
+      }
       if(!$('arrangement').hidden){
         if(!editing&&(e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save();}
         return;
