@@ -5,7 +5,9 @@
   const C=window.KanadeCore, Ex=window.KanadeExport, R=window.KanadeRenderer, B=window.KanadeEditing;
   const $=id=>document.getElementById(id);
   const P=window.KanadePerformance,A=window.KanadeArrangement;
-  let performancePanel,arrangementUI,transport,playbackDisplay=null,playbackPaint=null;
+  let performancePanel,popProgressionUI,chordComposerUI,arrangementUI,transport,playbackDisplay=null,playbackPaint=null;
+  let chordAssistEnabled=true;
+  try{chordAssistEnabled=localStorage.getItem('kanade.chordAssist.v1')!=='off';}catch(_){}
   const STORAGE='kanade.web.v1.autosave',OVERWRITE_STORAGE='kanade.web.v1.overwrite';
   const TUPLET_STORAGE='kanade.web.v1.tuplet', RECENT_COMMAND_STORAGE='kanade.web.v1.recentCommands';
   const durationKeys=[null,...C.DENOMS.slice().reverse()];
@@ -1578,7 +1580,7 @@
       addNote:()=>mobileChord?applyMobileChord():insert('note',undefined,true,mobileDraft),addRest:()=>insert('rest',undefined,true,mobileDraft),
       octDown:()=>{if(mobileChord||mobileDraft)changeMobilePitch(-7);else{setOctave(octave-1);renderMobile();}},
       octUp:()=>{if(mobileChord||mobileDraft)changeMobilePitch(7);else{setOctave(octave+1);renderMobile();}},
-      chord:toggleMobileChord,performance:()=>performancePanel.open(),loop:()=>transport.toggleLoop(),
+      chord:toggleMobileChord,chordComposer:()=>openChordComposer(),performance:()=>performancePanel.open(),loop:()=>transport.toggleLoop(),
       countDown:()=>adjustMeasureCount(-1),countUp:()=>adjustMeasureCount(1),
       addMeasure:()=>addMobileMeasures(1),addManyMeasures:()=>addMobileMeasures($('mobileMeasureCount').valueAsNumber),
       insertBefore:insertMeasureBefore,duplicateMeasure:duplicateMeasures,removeMeasures:removeSelectedMeasures,
@@ -2061,6 +2063,8 @@
     ['演奏・MIDI鍵盤で入力','midi keyboard performance step 鍵盤',()=>performancePanel.open('step'),''],
     ['リアルタイム録音入力','record quantize MIDI performance',()=>performancePanel.open('record'),''],
     ['コード名から和音を入力','chord symbol jazz harmony',()=>performancePanel.open('chord'),''],
+    ['コードで作曲','chord composer pad タイムライン 初心者',()=>openChordComposer(),''],
+    ['ポップ進行を入力','pop chord progression 王道 komuro',()=>openPopProgression(),''],
     ['音符入力モード','note entry onpu',()=>setCommandMode('entry'),'N'],
     ['選択モード','select sentaku',()=>setCommandMode('select'),'V'],
     ['現在の音高で音符を入力','insert note',()=>insert('note',undefined,true),''],
@@ -2993,8 +2997,68 @@
     if(rangeDirection||selectionRange||mobileChord)throw Error('範囲・和音の編集を終えてから入力してください');
     if(document.querySelector('dialog[open]'))throw Error('開いているダイアログを閉じてください');
   }
+  function chordContextForAssist(){
+    const Pop=window.KanadePopProgression;
+    if(!Pop)return {prev:['I'],fifths:score.key||0,mode:'major'};
+    const bar=score.measures[caret.mi];
+    const tick=C.eventSpans(score,caret.mi)[caret.index]?.start??0;
+    const marks=(bar?.directions||[]).filter(mark=>mark.key==='chordSymbol').sort((a,b)=>a.tick-b.tick);
+    const symbols=marks.filter(mark=>mark.tick<=tick).slice(-2).map(mark=>mark.text);
+    const mode=(score.key||0)<0?'minor':'major';
+    const prev=symbols.map(text=>Pop.symbolToRoman(text,score.key||0,mode)).filter(Boolean);
+    return {prev:prev.length?prev:['I'],fifths:score.key||0,mode};
+  }
+  function setupPopProgression(){
+    if(!window.KanadePopProgressionUI)return;
+    popProgressionUI=window.KanadePopProgressionUI.setup({
+      partCount:()=>C.scoreParts(documentScore()).length,
+      measureCount:()=>score.measures.length,
+      concertKey:()=>window.KanadeAgent.keyLabel(score.key),
+      commit:args=>{
+        checkPerformanceInput();
+        const out=window.KanadePopProgression.applyDocument(documentScore(),{...args,mode:(score.key||0)<0?'minor':'major'});
+        commit(out.document,out.summary,selected,activeMeasure,{...caret},selectionRange,{document:out.document,focusPart:out.focusPart});
+      }
+    });
+  }
+  function openPopProgression(){
+    setupPopProgression();
+    const ui=popProgressionUI;
+    if(!ui)return;
+    ui.refresh?.();
+    ui.open();
+  }
+  function setupChordComposer(){
+    if(!window.KanadeChordComposerUI)return;
+    chordComposerUI=window.KanadeChordComposerUI.setup({
+      keyLabel:()=>window.KanadeAgent.keyLabel(score.key),
+      partCount:()=>C.scoreParts(documentScore()).length,
+      fifths:()=>score.key||0,
+      mode:()=>(score.key||0)<0?'minor':'major',
+      previewChord:symbol=>{
+        try{
+          stopAudio();
+          sound.audition(P.chordPitches(symbol,4),C.soundName(score),C.soundingOffset(score)).catch(()=>{});
+        }catch(_){}
+      },
+      commit:args=>{
+        checkPerformanceInput();
+        const out=window.KanadeChordComposer.applyTimelineDocument(documentScore(),{...args,mode:(score.key||0)<0?'minor':'major'});
+        commit(out.document,out.summary,selected,activeMeasure,{...caret},selectionRange,{document:out.document,focusPart:out.focusPart});
+      }
+    });
+  }
+  function openChordComposer(){
+    setupChordComposer();
+    const ui=chordComposerUI;
+    if(!ui)return;
+    ui.refreshParts?.();
+    ui.open();
+  }
   function setupPerformance(){
     performancePanel=window.KanadePerformancePanel.setup({
+      chordAssistEnabled:()=>chordAssistEnabled,
+      chordContext:chordContextForAssist,
       focus:focusScore,
       target:performanceTarget,
       ready:()=>sound.ready(),
@@ -3045,6 +3109,16 @@
       try{localStorage.setItem('kanade.instrumentLanguage',instrumentLanguage);}catch(_){}
       render();
     };
+    $('chordComposerOpen')?.addEventListener('click',()=>attempt(openChordComposer));
+    $('popProgressionOpen')?.addEventListener('click',()=>attempt(openPopProgression));
+    const chordAssist=$('chordAssistToggle');
+    if(chordAssist){
+      chordAssist.checked=chordAssistEnabled;
+      chordAssist.addEventListener('change',()=>{
+        chordAssistEnabled=chordAssist.checked;
+        try{localStorage.setItem('kanade.chordAssist.v1',chordAssistEnabled?'on':'off');}catch(_){}
+      });
+    }
     for(const [id,icon] of Object.entries({commandBtn:'search',newBtn:'new',openBtn:'open',saveBtn:'save',selectMeasure:'select',copySelection:'copy',cutSelection:'cut',pasteSelection:'paste',insertMeasureBefore:'insert',duplicateMeasures:'duplicate',removeMeasure:'trash'})){
       const node=$(id);if(id==='saveBtn')node.querySelector('[aria-hidden]')?.remove();node.insertAdjacentHTML('afterbegin',window.KanadeIcons.svg(icon));
     }
@@ -3366,7 +3440,7 @@
       }
     }catch(e){console.warn('Tuplet settings are unavailable',e);}
     if(['トロンボーン','ユーフォニアム'].includes(score.instrument))octave=3;
-    setOctave(octave);setupPerformance();setupArrangement();setupTransport();setupEvents();setupEnsemble();render();window.__kanadeReady=true;
+    setOctave(octave);setupPerformance();setupPopProgression();setupArrangement();setupTransport();setupEvents();setupEnsemble();render();window.__kanadeReady=true;
   }
   // Available only when the local development server injects its flag.
   // Preserve the complete editing session across source-code reloads.

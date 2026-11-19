@@ -7,6 +7,8 @@
   const qualities=[['','メジャー'],['m','マイナー'],['7','7'],['maj7','maj7'],['m7','m7'],['sus4','sus4'],['sus2','sus2'],['dim','dim'],['aug','aug'],['m7b5','m7♭5'],['dim7','dim7'],['6','6'],['m6','m6'],['add9','add9'],['9','9'],['m9','m9'],['maj9','maj9'],['7sus4','7sus4']];
   const pitchLabel=p=>p.step+({'-2':'𝄫','-1':'♭',0:'',1:'♯',2:'𝄪'}[p.alter])+p.octave;
   function setup(api){
+    const Pop=root.KanadePopProgression;
+    const assistRow=$('chordAssistRow'),assistChips=$('chordAssistChips');
     const panel=$('performancePanel'),status=$('performanceStatus'),piano=$('performancePiano');
     const device=$('performanceDevice'),connect=$('performanceMidi'),start=$('performanceStart');
     let mode='step',keyboardOctave=4,access=null,port=null,step=null,stepTimer=null,take=null,starting=false;
@@ -183,15 +185,34 @@
     }
     start.onclick=()=>take?finishTake(true):beginTake();
     $('performanceCancel').onclick=()=>finishTake(false);
+    function refreshAssist(){
+      if(!Pop||!assistRow)return;
+      const enabled=api.chordAssistEnabled?.()!==false;
+      assistRow.hidden=!enabled||mode!=='chord';
+      if(assistRow.hidden){assistChips.replaceChildren();return;}
+      const ctx=api.chordContext?.()||{};
+      const ranked=Pop.rankNext(ctx.prev||[],ctx.fifths??0,ctx.mode||'major',3);
+      assistChips.replaceChildren(...ranked.map((item,index)=>{
+        const button=document.createElement('button');
+        button.type='button';button.role='option';
+        button.textContent=item.symbol;
+        button.title=`${item.roman} を入力`;
+        button.addEventListener('click',()=>{$('performanceSymbol').value=item.symbol;refreshChord();$('performanceSymbol').focus();});
+        return button;
+      }));
+      if(!ranked.length)assistRow.hidden=true;
+    }
     function refreshChord(){
       try{
         const pitches=P.chordPitches($('performanceSymbol').value,Number($('performanceChordOctave').value));
         $('performanceChordNotes').textContent=pitches.map(pitchLabel).join(' · ');
         $('performanceInsertChord').disabled=false;$('performanceWriteSymbol').disabled=false;
+        refreshAssist();
         return pitches;
       }catch(_){
         $('performanceChordNotes').textContent='コード名の例  Cmaj7、B♭m7、D/F♯';
         $('performanceInsertChord').disabled=true;$('performanceWriteSymbol').disabled=true;
+        assistRow.hidden=true;
         return null;
       }
     }
@@ -204,6 +225,14 @@
       refreshChord();
     };
     $('performanceSymbol').oninput=$('performanceChordOctave').onchange=refreshChord;
+    $('performanceSymbol').addEventListener('keydown',event=>{
+      if(event.key!=='Tab'||event.shiftKey||!api.chordAssistEnabled?.())return;
+      const first=assistChips.querySelector('button');
+      if(!first||assistRow.hidden)return;
+      event.preventDefault();
+      $('performanceSymbol').value=first.textContent;
+      refreshChord();
+    });
     $('performanceChord').onsubmit=event=>{
       event.preventDefault();
       const pitches=refreshChord();if(!pitches)return;
@@ -222,7 +251,7 @@
       $('performanceRecordTools').hidden=mode!=='record';
       $('performanceHint').textContent=mode==='record'?'4拍のカウント後に演奏し、「停止して入力」を押します。現在のテンポで音の長さと位置をそろえます。':
         '現在の音価で1つずつ入力します。同時に弾いた音は和音になります。';
-      if(mode==='chord')refreshChord();
+      if(mode==='chord')refreshChord(); else assistRow.hidden=true;
       say(targetLabel());
     }
     function open(next=mode){

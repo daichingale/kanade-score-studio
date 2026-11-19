@@ -5,6 +5,7 @@
  const I=root.KanadeInstruments||(typeof require==='function'?require('./instruments.js'):null);
  const Ex=root.KanadeExport||(typeof require==='function'?require('./musicxml.js'):null);
  const Arrange=root.KanadeArrange||(typeof require==='function'?require('./agent-arrange.js'):null);
+ const Pop=root.KanadePopProgression||(typeof require==='function'?require('./pop-progression.js'):null);
  const api=factory(C,B,I,Ex,Arrange);
  if(typeof module==='object'&&module.exports)module.exports=api;
  root.KanadeAgentTools=api;
@@ -25,7 +26,8 @@
   insertNotes:'音符を入力',insertRests:'休符を入力',transpose:'移調',addMeasures:'小節を追加',
   removeMeasures:'小節を削除',undoAiChange:'直前のAI編集を取り消し',exportMusicXML:'MusicXMLを書き出し',
   proposeInstrumentation:'編成を提案',arrangeMelody:'旋律を編成に分配',doublePart:'パートを重ねる',
-  voiceChords:'和音を配置',checkRanges:'音域を確認',fixRanges:'音域に収める',getInstrumentRanges:'音域表を確認'
+  voiceChords:'和音を配置',checkRanges:'音域を確認',fixRanges:'音域に収める',getInstrumentRanges:'音域表を確認',
+  applyPopProgression:'ポップ進行を伴奏として入力'
  };
 
  function fail(message){throw new Error(message);}
@@ -510,6 +512,25 @@
    description:'開いているパートの実用音域を返す。levelは初級、中級、上級。',
    parameters:{type:'object',properties:{level:{type:'string'}}},
    run(doc,args){return {summary:Arrange.describeRanges(partsOf(doc),Arrange.levelOf(args.level))};}
+  },
+  applyPopProgression:{
+   description:'学習済みポップ進行モデルから和音・コード記号を入力する。partは1始まり。progressionは I-V-vi-IV、IV-V-iii-vi、vi-IV-I-V、canon、komuro、auto など。gridは bar か half。voicingは block、root5、arpeggio。',
+   parameters:{type:'object',properties:{
+    part:{type:'integer'},from:{type:'integer'},to:{type:'integer'},progression:{type:'string'},den:{type:'integer'},
+    grid:{type:'string'},voicing:{type:'string'},octave:{type:'integer'},learn:{type:'boolean'}
+   },required:['from','to']},
+   confirm(doc,args){
+    const part=partsOf(doc)[resolvePart(doc,args.part??1)];
+    const from=(args.from||1)-1,to=(args.to||part.measures.length)-1;
+    const busy=part.measures.slice(from,to+1).some(bar=>bar.events.some(event=>event.type==='note'));
+    return busy?`${from+1}〜${to+1}小節の既存音符を伴奏で置き換えます。`:null;
+   },
+   run(doc,args){
+    const index=resolvePart(doc,args.part??1);
+    const mode=((partsOf(doc)[index].key||0)<0)?'minor':'major';
+    const out=Pop.applyDocument(doc,{...args,part:index+1,mode,progression:args.progression||args.template||'auto'});
+    return {document:out.document,focusPart:out.focusPart,summary:out.summary};
+   }
   },
   exportMusicXML:{
    description:'MusicXMLを書き出してダウンロードする。全文は返さない。',
