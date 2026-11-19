@@ -1,0 +1,15 @@
+Verovio 6.4.1
+https://www.verovio.org
+https://github.com/rism-digital/verovio
+
+同梱ファイル verovio-toolkit-wasm.js は npm の verovio@6.4.1
+（package/dist/verovio-toolkit-wasm.js）を改変せず置いたものです。
+WASM はこのファイルに埋め込まれています。別ファイルへ分割したり、
+中身を編集したりしていません。差し替えるときはこのファイルだけを
+同じ名前の Verovio ビルドで置き換えてください。
+
+License: LGPL-3.0-only
+全文は同じフォルダーの LICENSE です。
+記譜フォント Bravura の輪郭は Verovio が SVG に埋め込みます。
+Kanade 本体が画面用に同梱している Bravura.woff2 のライセンスは
+app/web/fonts/LICENSE-Bravura.txt です。
