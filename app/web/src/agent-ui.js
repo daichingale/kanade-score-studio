@@ -1,4 +1,4 @@
-/* Chat panel for the local Ollama assistant. It never writes the score. */
+/* Chat panel for the local Ollama assistant. Score edits go through kanadeAgent. */
 (function(root){
  'use strict';
  const Agent=root.KanadeAgent;
@@ -21,6 +21,8 @@
  let messages=[];
  let model='';
  let draft='';
+ let liveSteps=[];
+ let pendingConfirm=null;
  let busy=false;
  let turn=0;
  let abort=null;
@@ -33,7 +35,7 @@
   }catch{model='';messages=[];}
  }
  function save(){
-  try{localStorage.setItem(Agent.STORAGE_KEY,JSON.stringify({version:1,model,messages}));}
+  try{localStorage.setItem(Agent.STORAGE_KEY,JSON.stringify({version:1,model,messages:messages.map(message=>({role:message.role,content:message.content}))}));}
   catch{/* The conversation remains on screen when storage is full. */}
  }
  function setStatus(text){status.textContent=text;}
@@ -58,15 +60,27 @@
  }
  function render(){
   log.replaceChildren();
-  if(!messages.length&&!draft){
+  if(!messages.length&&!draft&&!liveSteps.length){
    const empty=document.createElement('p');
    empty.className='agent-empty';
-   empty.textContent='吹奏楽とマーチングの編成、音域、移調、リハーサル、ドリルについて相談できます。\n開いている楽譜の曲名・パート・小節数・テンポ・調を読み取りますが、楽譜は変更しません。\nCtrl+J でこのパネルを開閉します。Enter で送信、Shift+Enter で改行です。';
+   empty.textContent='吹奏楽とマーチングの編成、音域、移調、リハーサル、ドリルを相談できます。\n例:「小編成の吹奏楽にして」「トランペットに4小節のファンファーレを書いて」「クラリネットを全音上げて」\nAIの編集は元に戻せます。Ctrl+J で開閉、Enter で送信、Shift+Enter で改行です。';
    log.append(empty);
    return;
   }
-  for(const message of messages)log.append(bubble(message));
+  messages.forEach((message,index)=>{
+   log.append(bubble(message));
+   if(message.undoCount>0&&index===messages.length-1){
+    const button=document.createElement('button');
+    button.type='button';button.className='agent-undo';button.textContent='AIの変更を取り消す';
+    button.addEventListener('click',()=>undoTurn(message));
+    log.append(button);
+   }
+  });
+  for(const step of liveSteps){
+   const line=document.createElement('p');line.className='agent-step';line.textContent=step;log.append(line);
+  }
   if(draft)log.append(bubble({role:'assistant',content:draft,pending:true}));
+  if(pendingConfirm)log.append(pendingConfirm);
   log.scrollTop=log.scrollHeight;
  }
  function fillModels(names){
@@ -98,7 +112,51 @@
   }catch{fillModels([]);setStatus(Agent.connectionMessage('unavailable'));}
  }
  function connectedStatus(){
-  return 'ローカルの Ollama に接続しています。この相談は楽譜を変更しません。';
+  return 'ローカルの Ollama に接続しています。AIの編集は元に戻せます。';
+ }
+ function confirmAction(info){
+  return new Promise(resolve=>{
+   const card=document.createElement('div');card.className='agent-confirm';
+   const text=document.createElement('p');text.textContent=info.summary;
+   const actions=document.createElement('div');
+   const yes=document.createElement('button');yes.type='button';yes.textContent='実行';
+   const no=document.createElement('button');no.type='button';no.textContent='やめる';
+   const finish=value=>{pendingConfirm=null;resolve(value);render();};
+   yes.addEventListener('click',()=>finish(true));
+   no.addEventListener('click',()=>finish(false));
+   actions.append(yes,no);card.append(text,actions);pendingConfirm=card;render();
+  });
+ }
+ function undoTurn(message){
+  try{
+   root.kanadeAgent.undo(message.undoCount);
+   message.undoCount=0;
+   setStatus('AIの変更を取り消しました。');
+   render();
+  }catch(error){setStatus(error.message);}
+ }
+ async function streamChat(working,{signal,onText,absorb}){
+  const payload=Agent.buildChatPayload({model:select.value,history:working,summary:readSummary(),includeTools:true});
+  const response=await fetch('/__agent/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal,cache:'no-store'});
+  if(!response.ok){
+   const failure=await response.json().catch(()=>({}));
+   const error=new Error(failure.error||'chat failed');
+   error.status=response.status;error.body=failure;throw error;
+  }
+  const reader=response.body.getReader(),decoder=new TextDecoder();
+  const state=Agent.emptyStream();
+  let buffer='';
+  while(true){
+   const chunk=await reader.read();
+   if(chunk.done)break;
+   buffer+=decoder.decode(chunk.value,{stream:true});
+   const parsed=Agent.readNdjson(buffer);
+   buffer=parsed.rest;
+   for(const event of parsed.events){absorb?.(event);Agent.absorbEvent(state,event);if(state.content)onText?.(state.content);}
+  }
+  buffer+=decoder.decode();
+  for(const event of Agent.readNdjson(buffer,{flush:true}).events){absorb?.(event);Agent.absorbEvent(state,event);}
+  return Agent.finishStream(state);
  }
  function readSummary(){
   try{
@@ -106,19 +164,6 @@
    const position=root.KanadeSession?.position?.();
    return Agent.summarizeScore(doc,position||undefined);
   }catch{return Agent.summarizeScore(null);}
- }
- function applyEvents(text,events){
-  let failed=false;
-  for(const event of events){
-   const piece=Agent.textFromEvent(event);
-   if(piece.error){
-    failed=true;
-    setStatus(/not found|model/i.test(piece.error)?Agent.connectionMessage('missing'):piece.error==='応答の形式を読み取れませんでした'?piece.error:Agent.connectionMessage('unavailable'));
-    continue;
-   }
-   if(piece.content){text+=piece.content;draft=text;render();}
-  }
-  return {text,failed};
  }
  function setBusy(value){
   busy=value;
@@ -129,56 +174,48 @@
   const chosen=select.value;
   if(!chosen||busy||!text.trim())return;
   const id=++turn;
+  for(const message of messages)message.undoCount=0;
   messages=Agent.trimHistory([...messages,{role:'user',content:text.trim()}]);
-  model=chosen;draft='';save();render();
+  model=chosen;draft='';liveSteps=[];save();render();
   setBusy(true);
   abort=new AbortController();
-  let assistant='';
-  let failed=false;
   try{
-   const payload=Agent.buildChatPayload({model:chosen,history:messages,summary:readSummary()});
-   const response=await fetch('/__agent/chat',{
-    method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(payload),signal:abort.signal,cache:'no-store'
+   const result=await Agent.runTurn({
+    messages,signal:abort.signal,confirm:confirmAction,
+    execute:(call,options)=>root.kanadeAgent.call(call.name,call.arguments,options),
+    onText:value=>{if(id!==turn)return;draft=value;render();},
+    onStep:step=>{
+     if(id!==turn)return;
+     const label=root.KanadeAgentTools?.stepLabel(step.name)||step.name;
+     if(step.phase==='start')liveSteps.push(`${label}しています…`);
+     else if(step.phase==='done')liveSteps[liveSteps.length-1]=step.text;
+     draft='';render();
+    },
+    chat:streamChat
    });
    if(id!==turn)return;
-   if(!response.ok){
-    const failure=await response.json().catch(()=>({}));
-    const missing=response.status===404||/not found/i.test(String(failure.error||''));
-    setStatus(Agent.connectionMessage(missing?'missing':'unavailable'));
-    return;
+   if(result.error){
+    setStatus(/not found|model/i.test(result.error)?Agent.connectionMessage('missing'):result.error);
    }
-   const reader=response.body.getReader();
-   const decoder=new TextDecoder();
-   let buffer='';
-   while(true){
-    const chunk=await reader.read();
-    if(id!==turn){abort.abort();return;}
-    if(chunk.done)break;
-    buffer+=decoder.decode(chunk.value,{stream:true});
-    const parsed=Agent.readNdjson(buffer);
-    buffer=parsed.rest;
-    const step=applyEvents(assistant,parsed.events);
-    assistant=step.text;failed=failed||step.failed;
-   }
-   buffer+=decoder.decode();
-   const tail=Agent.readNdjson(buffer,{flush:true});
-   const done=applyEvents(assistant,tail.events);
-   assistant=done.text;failed=failed||done.failed;
-   if(assistant.trim()){
-    messages=Agent.trimHistory([...messages,{role:'assistant',content:assistant}]);
+   const content=[...liveSteps,result.content].filter(Boolean).join('\n');
+   if(content.trim()){
+    messages=Agent.trimHistory([...messages,{role:'assistant',content}]);
+    if(result.writes>0)messages.at(-1).undoCount=result.writes;
     save();
    }
-   draft='';render();
-   if(id===turn&&!failed)setStatus(connectedStatus());
+   draft='';liveSteps=[];render();
+   if(!result.error)setStatus(connectedStatus());
   }catch(error){
    if(id!==turn)return;
    if(error.name==='AbortError'){
-    if(assistant.trim()){messages=Agent.trimHistory([...messages,{role:'assistant',content:assistant}]);save();}
-    draft='';render();setStatus('応答を停止しました。');
+    const content=[...liveSteps,draft].filter(Boolean).join('\n');
+    if(content.trim()){messages=Agent.trimHistory([...messages,{role:'assistant',content}]);save();}
+    draft='';liveSteps=[];pendingConfirm=null;render();setStatus('応答を停止しました。');
     return;
    }
-   draft='';render();setStatus(Agent.connectionMessage('unavailable'));
+   const missing=error.status===404||/not found/i.test(String(error.body?.error||error.message||''));
+   draft='';liveSteps=[];render();
+   setStatus(Agent.connectionMessage(missing?'missing':'unavailable'));
   }finally{
    if(id===turn){setBusy(false);abort=null;}
   }
@@ -188,7 +225,7 @@
   if(!messages.length&&!draft)return;
   if(!window.confirm('この画面の相談履歴を消去しますか？楽譜は残ります。'))return;
   turn++;abort?.abort();abort=null;
-  messages=[];draft='';model=select.value||model;
+  messages=[];draft='';liveSteps=[];pendingConfirm=null;model=select.value||model;
   setBusy(false);save();render();
  }
 

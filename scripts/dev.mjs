@@ -55,14 +55,35 @@ async function readBody(req, limit) {
 export function prepareAgentChat(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw agentError(400, 'invalid-request');
   if (typeof value.model !== 'string' || !MODEL_NAME.test(value.model)) throw agentError(400, 'invalid-request');
-  if (!Array.isArray(value.messages) || value.messages.length < 1 || value.messages.length > 48) throw agentError(400, 'invalid-request');
+  if (!Array.isArray(value.messages) || value.messages.length < 1 || value.messages.length > 80) throw agentError(400, 'invalid-request');
   let total = 0;
   const messages = value.messages.map(message => {
-    if (!message || typeof message !== 'object' || !['system', 'user', 'assistant'].includes(message.role)) throw agentError(400, 'invalid-request');
-    if (typeof message.content !== 'string' || message.content.length > 12000) throw agentError(400, 'invalid-request');
-    total += message.content.length;
+    if (!message || typeof message !== 'object' || !['system', 'user', 'assistant', 'tool'].includes(message.role)) throw agentError(400, 'invalid-request');
+    const content = typeof message.content === 'string' ? message.content : '';
+    if (content.length > 12000) throw agentError(400, 'invalid-request');
+    total += content.length;
     if (total > 200000) throw agentError(400, 'invalid-request');
-    return { role: message.role, content: message.content };
+    const clean = { role: message.role, content };
+    if (message.role === 'tool') {
+      const name = message.tool_name || message.name;
+      if (typeof name !== 'string' || !TOOL_NAME.test(name)) throw agentError(400, 'invalid-request');
+      clean.tool_name = name;
+    }
+    if (message.role === 'assistant' && message.tool_calls !== undefined) {
+      if (!Array.isArray(message.tool_calls) || message.tool_calls.length > 8) throw agentError(400, 'invalid-request');
+      clean.tool_calls = message.tool_calls.map(call => {
+        const fn = call?.function || call;
+        if (!fn || typeof fn.name !== 'string' || !TOOL_NAME.test(fn.name)) throw agentError(400, 'invalid-request');
+        let args = fn.arguments ?? {};
+        if (typeof args === 'string') {
+          if (args.length > 8000) throw agentError(400, 'invalid-request');
+          try { args = args ? JSON.parse(args) : {}; } catch { throw agentError(400, 'invalid-request'); }
+        }
+        if (!args || typeof args !== 'object' || Array.isArray(args) || JSON.stringify(args).length > 8000) throw agentError(400, 'invalid-request');
+        return { function: { name: fn.name, arguments: args } };
+      });
+    }
+    return clean;
   });
   const payload = { model: value.model, messages, stream: true };
   if (value.tools !== undefined) {

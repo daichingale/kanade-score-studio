@@ -1,0 +1,458 @@
+/* Pure score tools for the local assistant. They return a new document and never touch the editor. */
+(function(root,factory){
+ const C=root.KanadeCore||(typeof require==='function'?require('./core.js'):null);
+ const B=root.KanadeEditing||(typeof require==='function'?require('./editing.js'):null);
+ const I=root.KanadeInstruments||(typeof require==='function'?require('./instruments.js'):null);
+ const Ex=root.KanadeExport||(typeof require==='function'?require('./musicxml.js'):null);
+ const api=factory(C,B,I,Ex);
+ if(typeof module==='object'&&module.exports)module.exports=api;
+ root.KanadeAgentTools=api;
+})(typeof globalThis!=='undefined'?globalThis:this,function(C,B,I,Ex){
+ 'use strict';
+ const DENOMS=new Set([1,2,4,8,16,32,64]);
+ const KEY_NAMES={
+  c:0,am:0,'ハ':0,'ハ長調':0,g:1,em:1,'ト':1,'ト長調':1,d:2,bm:2,'ニ':2,'ニ長調':2,
+  a:3,'f#m':3,'イ':3,'イ長調':3,e:4,'c#m':4,'ホ':4,'ホ長調':4,b:5,'g#m':5,'ロ':5,'ロ長調':5,
+  'f#':6,'嬰ヘ':6,'嬰ヘ長調':6,'c#':7,'嬰ハ':7,f:-1,dm:-1,'ヘ':-1,'ヘ長調':-1,
+  bb:-2,gm:-2,'b♭':-2,'変ロ':-2,'変ロ長調':-2,eb:-3,cm:-3,'e♭':-3,'変ホ':-3,'変ホ長調':-3,
+  ab:-4,fm:-4,'a♭':-4,'変イ':-4,'変イ長調':-4,db:-5,'d♭':-5,'変ニ':-5,gb:-6,'g♭':-6,'変ト':-6,cb:-7,'c♭':-7,'変ハ':-7
+ };
+ const STEP_NAMES={
+  getScoreSummary:'楽譜の概要を確認',readMeasures:'小節を読む',listEnsembleTemplates:'編成テンプレートを確認',
+  setMetadata:'曲名または作曲者を変更',setTempo:'テンポを変更',setKey:'調号を変更',setTimeSignature:'拍子を変更',
+  addParts:'パートを追加',applyEnsembleTemplate:'編成テンプレートを適用',removePart:'パートを削除',
+  insertNotes:'音符を入力',insertRests:'休符を入力',transpose:'移調',addMeasures:'小節を追加',
+  removeMeasures:'小節を削除',undoAiChange:'直前のAI編集を取り消し',exportMusicXML:'MusicXMLを書き出し'
+ };
+
+ function fail(message){throw new Error(message);}
+ function integer(value,label,min,max){
+  const number=typeof value==='string'&&/^-?\d+$/.test(value.trim())?Number(value.trim()):value;
+  if(!Number.isInteger(number)||number<min||number>max)fail(`${label}は${min}から${max}の整数で指定してください`);
+  return number;
+ }
+ function flag(value){return value===true||value==='true'||value===1||value==='1';}
+ function partsOf(doc){return C.scoreParts(doc);}
+ function assemble(doc,parts){
+  const [first,...rest]=parts;
+  const next={...first,title:first.title,composer:first.composer,tempo:first.tempo,time:first.time};
+  if(first.meterTail)next.meterTail=first.meterTail;else delete next.meterTail;
+  if(rest.length)next.ensembleParts=rest.map(part=>({...part,title:first.title,composer:first.composer,tempo:first.tempo,time:first.time,meterTail:first.meterTail}));
+  if(doc.publication)next.publication=doc.publication;
+  if(doc.clipBank)next.clipBank=doc.clipBank;
+  if(doc.sceneLinks)next.sceneLinks=doc.sceneLinks;
+  if(doc.bassPart)next.bassPart=doc.bassPart;
+  const errors=C.validateScore(next);
+  if(errors.length)fail(errors[0]);
+  return next;
+ }
+ function concertOf(doc){
+  const pitched=partsOf(doc).find(part=>part.clef!=='percussion');
+  if(!pitched)return 0;
+  return (pitched.key||0)-(I.fifths[pitched.transposition]||0);
+ }
+ function writtenKey(item,concert){
+  if(item.clef==='percussion')return 0;
+  const key=concert+(I.fifths[item.transposition]||0);
+  if(key<-7||key>7)fail(`${item.name}では、この調の記譜用調号が範囲外です`);
+  return key;
+ }
+ function resolvePart(doc,part){
+  const parts=partsOf(doc);
+  if(part===undefined||part===null||part==='')return 0;
+  if(typeof part==='number'||typeof part==='string'&&/^\d+$/.test(part.trim())){
+   const number=integer(part,'パート番号',1,parts.length);
+   return number-1;
+  }
+  const query=String(part).trim();
+  const hits=parts.flatMap((item,index)=>{
+   const name=item.instrument||'';
+   const key=item.instrumentKey||I.profile(item)?.key||'';
+   return name===query||name.includes(query)||key===query?[index]:[];
+  });
+  if(hits.length===1)return hits[0];
+  if(!hits.length)fail(`「${query}」というパートが見つかりません`);
+  fail(`「${query}」に複数のパートが一致します。番号で指定してください`);
+ }
+ function hasNotes(doc){
+  return partsOf(doc).some(part=>part.measures.some(bar=>[...(bar.events||[]),...(bar.voice2||[])].some(event=>event.type==='note')));
+ }
+ function emptyMeasures(source){
+  return source.measures.map(bar=>({id:C.uid(),events:[],...(bar.time?{time:{...bar.time}}:{})}));
+ }
+ function partFromItem(doc,item,concert,{reuse=null}={}){
+  return {...C.createScore(),id:reuse?doc.id:C.uid(),instrument:item.name,instrumentKey:item.key,clef:item.clef,
+   staffLines:item.staffLines,sound:item.sound,transposition:item.transposition,key:writtenKey(item,concert),
+   title:doc.title,composer:doc.composer,time:doc.time,tempo:doc.tempo,...(doc.meterTail?{meterTail:doc.meterTail}:{}),
+   measures:reuse?reuse:emptyMeasures(doc)};
+ }
+ function instrumentItem(value){
+  if(I.byKey.get(value))return I.byKey.get(value);
+  const text=String(value||'').trim();
+  const exact=I.catalog.find(item=>item.name===text||item.english.toLowerCase()===text.toLowerCase()||item.key===text);
+  if(exact)return exact;
+  const matched=I.match(text);
+  if(matched)return matched[1];
+  fail(`楽器「${text}」はカタログにありません。clarinet や trumpet のようなキーで指定してください`);
+ }
+ function templateBy(id){
+  const query=String(id||'').trim();
+  const found=I.templates.find(item=>item.id===query||item.name===query);
+  if(!found)fail(`編成「${query}」はありません。wind、smallWind、windSymphony、marching などを指定してください`);
+  return found;
+ }
+ function editPart(doc,index,editor){
+  const parts=partsOf(doc);
+  const edited=editor(parts[index]);
+  if(parts.length===1)return assemble(doc,[edited]);
+  const replaced=C.replaceScorePart(assemble(doc,parts),index,edited);
+  return replaced.ensembleParts?.length?replaced:assemble(doc,[(({ensembleParts,...solo})=>solo)(replaced)]);
+ }
+ function measureRange(part,from,to){
+  const start=integer(from??1,'開始小節',1,part.measures.length)-1;
+  const end=integer(to??part.measures.length,'終了小節',start+1,part.measures.length)-1;
+  return [start,end];
+ }
+ function beatTick(part,measureIndex,beat){
+  const time=C.timeAt(part,measureIndex),beatTicks=C.WHOLE/time.den;
+  const value=beat===undefined?1:Number(beat);
+  if(!Number.isFinite(value)||value<1)fail('拍は1以上で指定してください');
+  const tick=Math.round((value-1)*beatTicks);
+  if(tick<0||tick>=C.barTicks(part,measureIndex))fail('拍が小節の長さを超えています');
+  return tick;
+ }
+ function makeEvent(spec,tieStart){
+  if(!spec||typeof spec!=='object')fail('音符の指定が不正です');
+  const den=integer(spec.den??4,'音価',1,64);
+  if(!DENOMS.has(den))fail('音価は1、2、4、8、16、32、64のいずれかです');
+  const dots=integer(spec.dots??0,'付点',0,2);
+  if(spec.type==='rest'||spec.rest===true)return C.makeRest(den,dots);
+  const step=String(spec.step||'').toUpperCase();
+  const alter=integer(spec.alter??0,'臨時記号',-2,2);
+  const octave=integer(spec.octave??4,'オクターブ',0,8);
+  const note=C.makeNote({step,alter,octave},den,dots);
+  if(tieStart||flag(spec.tie))note.tieStart=true;
+  return note;
+ }
+ function parseSequence(list,kind){
+  if(!Array.isArray(list)||!list.length||list.length>64)fail(`${kind}は1〜64個で指定してください`);
+  const events=list.map((spec,index)=>{
+   const event=makeEvent(kind==='休符'?{...spec,type:'rest'}:spec,false);
+   if(kind==='音符'&&event.type!=='note')fail(`${index+1}個目が音符ではありません`);
+   return event;
+  });
+  for(let index=0;index<events.length-1;index++){
+   if(events[index].tieStart&&events[index+1].type==='note')events[index+1].tieStop=true;
+  }
+  return events;
+ }
+ function placeSequence(part,measureIndex,tick,events,overwrite){
+  let next=part,abs=C.measureOffsets(part)[measureIndex]+tick;
+  for(const event of events){
+   let offsets=C.measureOffsets(next);
+   while(abs>=offsets.at(-1)){
+    if(next.measures.length>=500)fail('小節数の上限です');
+    next=C.addMeasure(next);offsets=C.measureOffsets(next);
+   }
+   const loc=C.locateTick(offsets,abs);
+   const placed=C.placeAcrossBars(next,loc.mi,loc.tick,event,{overwrite});
+   next=placed.score;
+   abs+=C.durationTicks(event.den,event.dots);
+  }
+  return next;
+ }
+ function affectedHasNotes(part,measureIndex,tick,events){
+  const length=events.reduce((total,event)=>total+C.durationTicks(event.den,event.dots),0);
+  const start=C.measureOffsets(part)[measureIndex]+tick,end=start+length,offsets=C.measureOffsets(part);
+  for(let mi=0;mi<part.measures.length;mi++){
+   if(offsets[mi+1]<=start||offsets[mi]>=end)continue;
+   for(const span of C.eventSpans(part,mi,false)){
+    const absStart=offsets[mi]+span.start,absEnd=offsets[mi]+span.end;
+    if(absEnd>start&&absStart<end&&span.event.type==='note')return true;
+   }
+  }
+  return false;
+ }
+ function spell(midi,preferSharps){
+  const pc=((midi%12)+12)%12,octave=Math.floor(midi/12)-1;
+  const sharp=['C','C','D','D','E','F','F','G','G','A','A','B'];
+  const flat=['C','D','D','E','E','F','G','G','A','A','B','B'];
+  const sharpAlter=[0,1,0,1,0,0,1,0,1,0,1,0];
+  const flatAlter=[0,-1,0,-1,0,0,-1,0,-1,0,-1,0];
+  if(octave<0||octave>8)fail('移調すると音域（オクターブ0〜8）の外に出ます');
+  return {step:(preferSharps?sharp:flat)[pc],alter:(preferSharps?sharpAlter:flatAlter)[pc],octave};
+ }
+ function formatEvents(part,mi){
+  const events=part.measures[mi].events;
+  if(!events.length)return '（空）';
+  return events.map(event=>C.eventLabel(event).replace(/\s+/g,' ')).join(' | ');
+ }
+ function summaryText(doc){
+  const parts=partsOf(doc);
+  return [`曲名: ${doc.title||'なし'}`,`テンポ: ♩=${doc.tempo}`,`小節数: ${parts[0].measures.length}`,`パート数: ${parts.length}`,
+   ...parts.map((part,index)=>`${index+1}. ${part.instrument} / 調号 ${part.key} / 移調 ${part.transposition||'concert'}`)].join('\n');
+ }
+
+ const operations={
+  getScoreSummary:{
+   description:'開いている楽譜の曲名、テンポ、拍子、パート一覧を返す。編集前に使う。',
+   parameters:{type:'object',properties:{}},
+   run(doc){return {summary:summaryText(doc)};}
+  },
+  readMeasures:{
+   description:'指定パートの小節範囲を読む。partは番号か楽器名。fromとtoは1始まり。最大16小節。',
+   parameters:{type:'object',properties:{part:{type:'string'},from:{type:'integer'},to:{type:'integer'}}},
+   run(doc,args){
+    const index=resolvePart(doc,args.part);
+    const part=partsOf(doc)[index];
+    const [from,to]=measureRange(part,args.from??1,args.to??Math.min(part.measures.length,(args.from??1)+3));
+    if(to-from+1>16)fail('一度に読めるのは16小節までです');
+    const lines=[`${index+1}. ${part.instrument} の${from+1}〜${to+1}小節（記譜音）:`];
+    for(let mi=from;mi<=to;mi++)lines.push(`${mi+1}: ${formatEvents(part,mi)}`);
+    return {summary:lines.join('\n')};
+   }
+  },
+  listEnsembleTemplates:{
+   description:'使える編成テンプレートのidと名前を返す。',
+   parameters:{type:'object',properties:{}},
+   run(){return {summary:I.templates.map(item=>`${item.id}: ${item.name}（${item.keys.length}）`).join('\n')};}
+  },
+  setMetadata:{
+   description:'曲名または作曲者を変える。不要な項目は省略する。',
+   parameters:{type:'object',properties:{title:{type:'string'},composer:{type:'string'}}},
+   run(doc,args){
+    const patch={};
+    if(args.title!==undefined){
+     if(typeof args.title!=='string'||!args.title.trim()||args.title.trim().length>200)fail('曲名は1〜200文字です');
+     patch.title=args.title.trim();
+    }
+    if(args.composer!==undefined){
+     if(typeof args.composer!=='string'||args.composer.length>200)fail('作曲者は200文字までです');
+     patch.composer=args.composer.trim();
+    }
+    if(!Object.keys(patch).length)fail('曲名または作曲者を指定してください');
+    const next=editPart(doc,0,part=>C.withSettings(part,patch));
+    const bits=[];
+    if(patch.title)bits.push(`曲名を「${patch.title}」に変更`);
+    if(patch.composer!==undefined)bits.push(`作曲者を「${patch.composer||'なし'}」に変更`);
+    return {document:next,summary:bits.join('、')+'しました'};
+   }
+  },
+  setTempo:{
+   description:'テンポ（四分音符のBPM）を20〜300で設定する。',
+   parameters:{type:'object',properties:{tempo:{type:'integer'}},required:['tempo']},
+   run(doc,args){
+    const tempo=integer(args.tempo,'テンポ',20,300);
+    return {document:editPart(doc,0,part=>C.withSettings(part,{tempo})),summary:`テンポを♩=${tempo}にしました`};
+   }
+  },
+  setKey:{
+   description:'コンサート調の五度圏を設定する。0がハ長調、2がニ長調、-3が変ホ長調。移調楽器の記譜調号も合わせる。',
+   parameters:{type:'object',properties:{fifths:{type:'integer'},name:{type:'string'}}},
+   run(doc,args){
+    let fifths;
+    if(args.name!==undefined){
+     const key=KEY_NAMES[String(args.name).trim().toLowerCase().replace(/\s+/g,'')];
+     if(key===undefined)fail('調の名前を解釈できません。fifths（ハ長調は0、変ホ長調は-3）で指定してください');
+     fifths=key;
+    }else fifths=integer(args.fifths,'調号',-7,7);
+    const parts=partsOf(doc).map(part=>{
+     const item=I.byKey.get(part.instrumentKey)||I.profile(part)||{clef:part.clef,transposition:part.transposition,name:part.instrument};
+     const key=part.clef==='percussion'?0:writtenKey(item,fifths);
+     return key===part.key?part:{...part,key};
+    });
+    return {document:assemble(doc,parts),summary:`調をコンサートの五度圏 ${fifths} にしました。移調楽器は記譜用の調号です`};
+   }
+  },
+  setTimeSignature:{
+   description:'拍子を変える。measureは1始まり。numは1〜12、denは2、4、8、16。countを省略すると最後まで。',
+   parameters:{type:'object',properties:{measure:{type:'integer'},num:{type:'integer'},den:{type:'integer'},count:{type:'integer'}},required:['num','den']},
+   run(doc,args){
+    const num=integer(args.num,'拍子の分子',1,12),den=integer(args.den,'拍子の分母',2,16);
+    if(![2,4,8,16].includes(den))fail('拍子の分母は2、4、8、16です');
+    const parts=partsOf(doc);
+    const start=integer(args.measure??1,'小節',1,parts[0].measures.length)-1;
+    const count=args.count===undefined?null:integer(args.count,'小節数',1,parts[0].measures.length-start);
+    const updated=parts.map((part,index)=>{
+     try{return C.setMeter(part,start,[{num,den}],count);}
+     catch(error){fail(`${index+1}番パート: ${error.message}`);}
+    });
+    const whole=start===0&&count===null;
+    const first=updated[0];
+    const synced=updated.map(part=>({...part,time:whole?{num,den}:first.time,meterTail:first.meterTail}));
+    return {document:assemble(doc,synced),summary:`${start+1}小節目から拍子を${num}/${den}にしました`};
+   }
+  },
+  addParts:{
+   description:'楽器を末尾に追加する。keysはclarinet、trumpetのようなカタログキーの配列。',
+   parameters:{type:'object',properties:{keys:{type:'array',items:{type:'string'}}},required:['keys']},
+   run(doc,args){
+    if(!Array.isArray(args.keys)||!args.keys.length||args.keys.length>32)fail('追加する楽器を1〜32個指定してください');
+    const existing=partsOf(doc);
+    if(existing.length+args.keys.length>32)fail('編成は32パートまでです');
+    const concert=concertOf(doc);
+    const added=args.keys.map(key=>partFromItem(doc,instrumentItem(key),concert));
+    const numbered=I.numberParts([...existing,...added],added.map((_,index)=>existing.length+index));
+    const focus=existing.length;
+    return {document:assemble(doc,numbered),focusPart:focus,summary:`${added.map(part=>part.instrument).join('、')}を追加しました`};
+   }
+  },
+  applyEnsembleTemplate:{
+   description:'編成テンプレートを使う。idはwind、smallWind、windSymphony、marchingなど。空の楽譜では入れ替える。音符がある楽譜を入れ替えるときはreplaceをtrueにする。',
+   parameters:{type:'object',properties:{id:{type:'string'},replace:{type:'boolean'}},required:['id']},
+   confirm(doc,args){
+    const template=templateBy(args.id);
+    if(flag(args.replace)&&hasNotes(doc))return `${template.name}（${template.keys.length}パート）に入れ替えます。いまの音符は残しません。`;
+    return null;
+   },
+   run(doc,args){
+    const template=templateBy(args.id);
+    const replace=flag(args.replace)||(partsOf(doc).length===1&&!hasNotes(doc));
+    if(!replace&&partsOf(doc).length+template.keys.length>32)fail('追加すると32パートを超えます');
+    const concert=concertOf(doc);
+    if(replace){
+     const created=template.keys.map((key,index)=>partFromItem(doc,I.byKey.get(key),concert,{reuse:index===0?emptyMeasures(doc):null}));
+     const numbered=I.numberParts(created,created.map((_,index)=>index));
+     return {document:assemble(doc,numbered),focusPart:0,summary:`${template.name}（${template.keys.length}パート）に入れ替えました`};
+    }
+    const existing=partsOf(doc);
+    const added=template.keys.map(key=>partFromItem(doc,I.byKey.get(key),concert));
+    const numbered=I.numberParts([...existing,...added],added.map((_,index)=>existing.length+index));
+    return {document:assemble(doc,numbered),focusPart:existing.length,summary:`${template.name}の${added.length}パートを追加しました`};
+   }
+  },
+  removePart:{
+   description:'パートを1つ削除する。最後の1パートは消せない。実行前に確認が必要。',
+   parameters:{type:'object',properties:{part:{type:'string'}},required:['part']},
+   confirm(doc,args){
+    const index=resolvePart(doc,args.part);
+    return `${index+1}番「${partsOf(doc)[index].instrument}」を削除します。`;
+   },
+   run(doc,args){
+    const index=resolvePart(doc,args.part),parts=partsOf(doc);
+    if(parts.length<2)fail('最後のパートは削除できません');
+    const name=parts[index].instrument;
+    const nextParts=parts.filter((_,item)=>item!==index);
+    return {document:assemble(doc,nextParts),focusPart:Math.max(0,index-1),summary:`${name}を削除しました`};
+   }
+  },
+  insertNotes:{
+   description:'記譜音の音符を拍位置から順に置く。notesの各要素はstep、octave、den、必要ならalter、dots、tie。overwriteがtrueなら重なった音符を置き換える。',
+   parameters:{type:'object',properties:{part:{type:'string'},measure:{type:'integer'},beat:{type:'number'},overwrite:{type:'boolean'},notes:{type:'array'}},required:['measure','notes']},
+   confirm(doc,args){
+    if(!flag(args.overwrite))return null;
+    const index=resolvePart(doc,args.part),part=partsOf(doc)[index];
+    const measure=integer(args.measure,'小節',1,part.measures.length)-1;
+    const events=parseSequence(args.notes,'音符');
+    if(!affectedHasNotes(part,measure,beatTick(part,measure,args.beat),events))return null;
+    return `${index+1}番${part.instrument}の${measure+1}小節目付近にある音符を置き換えます。`;
+   },
+   run(doc,args){
+    const index=resolvePart(doc,args.part),part=partsOf(doc)[index];
+    const measure=integer(args.measure,'小節',1,500)-1;
+    if(measure>=part.measures.length)fail(`${part.measures.length}小節までしかありません`);
+    const events=parseSequence(args.notes,'音符');
+    const edited=placeSequence(part,measure,beatTick(part,measure,args.beat),events,flag(args.overwrite));
+    return {document:editPart(doc,index,()=>edited),focusPart:index,summary:`${part.instrument}の${measure+1}小節から${events.length}音を入力しました`};
+   }
+  },
+  insertRests:{
+   description:'休符を拍位置から順に置く。restsの各要素はdenとdots。',
+   parameters:{type:'object',properties:{part:{type:'string'},measure:{type:'integer'},beat:{type:'number'},rests:{type:'array'}},required:['measure','rests']},
+   run(doc,args){
+    const index=resolvePart(doc,args.part),part=partsOf(doc)[index];
+    const measure=integer(args.measure,'小節',1,part.measures.length)-1;
+    const events=parseSequence(args.rests,'休符');
+    const edited=placeSequence(part,measure,beatTick(part,measure,args.beat),events,false);
+    return {document:editPart(doc,index,()=>edited),focusPart:index,summary:`${part.instrument}の${measure+1}小節から休符を${events.length}個置きました`};
+   }
+  },
+  transpose:{
+   description:'パートの小節範囲を移調する。全音上げはsemitones:2、半音上げはsemitones:1。音名で1段上げるときはsteps:1。記譜音を動かす。',
+   parameters:{type:'object',properties:{part:{type:'string'},from:{type:'integer'},to:{type:'integer'},semitones:{type:'integer'},steps:{type:'integer'}}},
+   run(doc,args){
+    const index=resolvePart(doc,args.part),part=partsOf(doc)[index];
+    const [from,to]=measureRange(part,args.from??1,args.to??part.measures.length);
+    const ids=part.measures.slice(from,to+1).flatMap(bar=>bar.events.filter(event=>event.type==='note').map(event=>event.id));
+    if(!ids.length)fail('移調する音符がありません');
+    let edited=part,label;
+    if(args.semitones!==undefined){
+     const amount=integer(args.semitones,'半音',-24,24);
+     if(amount===0)fail('半音数に0は使えません');
+     edited=B.transform(part,ids,event=>{
+      if(event.type!=='note')return event;
+      event.pitches=C.normalizeChord(event.pitches.map(pitch=>({...pitch,...spell(C.pitchMidi(pitch)+amount,amount>0)})));
+      return event;
+     });
+     label=`${amount>0?'+':''}${amount}半音`;
+    }else{
+     const amount=integer(args.steps,'音程',-14,14);
+     if(amount===0)fail('音程に0は使えません');
+     edited=B.transpose(part,ids,amount,false);
+     label=`音名で${amount>0?'+':''}${amount}段`;
+    }
+    return {document:editPart(doc,index,()=>edited),focusPart:index,summary:`${part.instrument}の${from+1}〜${to+1}小節を${label}移調しました`};
+   }
+  },
+  addMeasures:{
+   description:'空の小節を挿入する。atは挿入位置（1始まり、末尾の次も可）、countは個数。',
+   parameters:{type:'object',properties:{at:{type:'integer'},count:{type:'integer'}},required:['at']},
+   run(doc,args){
+    const part=partsOf(doc)[0];
+    const at=integer(args.at,'挿入位置',1,part.measures.length+1)-1;
+    const count=integer(args.count??1,'小節数',1,32);
+    const edited=B.insertMeasures(part,at,count);
+    return {document:editPart(doc,0,()=>edited),summary:`${at+1}小節目の位置に空の小節を${count}個追加しました`};
+   }
+  },
+  removeMeasures:{
+   description:'小節を削除する。fromとtoは1始まりで両端を含む。実行前に確認が必要。',
+   parameters:{type:'object',properties:{from:{type:'integer'},to:{type:'integer'}},required:['from','to']},
+   confirm(doc,args){
+    const part=partsOf(doc)[0];
+    const [from,to]=measureRange(part,args.from,args.to);
+    return `${from+1}〜${to+1}小節をすべてのパートから削除します。`;
+   },
+   run(doc,args){
+    const part=partsOf(doc)[0];
+    const [from,to]=measureRange(part,args.from,args.to);
+    const edited=B.removeMeasures(part,from,to);
+    return {document:editPart(doc,0,()=>edited),summary:`${from+1}〜${to+1}小節を削除しました`};
+   }
+  },
+  undoAiChange:{
+   description:'直前のAIによる編集を1段階だけ元に戻す。',
+   parameters:{type:'object',properties:{}},
+   undo:true
+  },
+  exportMusicXML:{
+   description:'MusicXMLを書き出してダウンロードする。全文は返さない。',
+   parameters:{type:'object',properties:{}},
+   run(doc){
+    const xml=Ex.musicXMLScore(partsOf(doc));
+    const filename=`${String(doc.title||'kanade').replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').slice(0,80)||'kanade'}.musicxml`;
+    return {summary:`MusicXMLを書き出しました（${xml.length}文字）。ダウンロードを開始します。`,xml,filename};
+   }
+  }
+ };
+
+ function list(){
+  return Object.entries(operations).map(([name,op])=>({
+   name,description:op.description,parameters:op.parameters,
+   destructive:typeof op.confirm==='function'
+  }));
+ }
+ function confirmText(doc,name,args){
+  const op=operations[name];
+  if(!op)fail('未登録のツールです');
+  return op.confirm?op.confirm(C.copy(doc),args||{}):null;
+ }
+ function run(doc,name,args){
+  const op=operations[name];
+  if(!op||op.undo)fail('未登録のツールです');
+  return op.run(C.copy(doc),args||{});
+ }
+ function stepLabel(name){return STEP_NAMES[name]||name;}
+
+ return {list,run,confirmText,stepLabel,operations};
+});

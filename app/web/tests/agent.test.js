@@ -3,14 +3,15 @@ const assert=require('node:assert/strict');
 const C=require('../src/core');
 const Agent=require('../src/agent');
 
-test('system prompt is a Japanese wind-band specialist and does not edit the score',()=>{
+test('system prompt tells a wind-band model how to call the score tools',()=>{
  const prompt=Agent.systemPrompt();
  assert.match(prompt,/吹奏楽/);
- assert.match(prompt,/マーチング/);
- assert.match(prompt,/日本語/);
- assert.match(prompt,/編集できません/);
- assert.match(prompt,/transposition/);
- assert.match(prompt,/断定しない/);
+ assert.match(prompt,/記譜音/);
+ assert.match(prompt,/insertNotes/);
+ assert.match(prompt,/applyEnsembleTemplate/);
+ assert.match(prompt,/semitones を 2/);
+ assert.match(prompt,/smallWind/);
+ assert.match(prompt,/断定しません/);
 });
 
 test('score summary is read-only and lists title, parts, meter, tempo and key',()=>{
@@ -72,6 +73,48 @@ test('ndjson chunks decode independently and a partial line waits',()=>{
  assert.equal(Agent.textFromEvent(broken.events[0]).error,'応答の形式を読み取れませんでした');
 });
 
+test('tool loop sends results back and stops for confirmation or the step limit',async()=>{
+ const scripts=[
+  [{message:{role:'assistant',content:'',tool_calls:[{index:0,function:{name:'setMetadata',arguments:'{"ti'}}]},done:false},
+   {message:{role:'assistant',tool_calls:[{index:0,function:{arguments:'tle":"ファンファーレ"}'}}]},done:true}],
+  [{message:{role:'assistant',content:'曲名をファンファーレにしました。'},done:true}]
+ ];
+ let round=0;
+ const seen=[];
+ const result=await Agent.runTurn({
+  messages:[{role:'user',content:'曲名をファンファーレにして'}],
+  async chat(messages,{absorb}){
+   seen.push(messages.map(message=>message.role));
+   const events=scripts[round++]||[{message:{role:'assistant',content:'上限です'},done:true}];
+   for(const event of events)absorb(event);
+   return null;
+  },
+  async execute(call){return {ok:true,summary:`曲名を${call.arguments.title}にしました`,wrote:1};}
+ });
+ assert.equal(result.content,'曲名をファンファーレにしました。');
+ assert.equal(result.writes,1);
+ assert.equal(seen[1].includes('tool'),true);
+ const declined=await Agent.runTurn({
+  messages:[{role:'user',content:'消して'}],
+  async chat(messages,{absorb}){
+   if(messages.some(message=>message.role==='tool'))absorb({message:{content:'削除はやめました。'},done:true});
+   else absorb({message:{tool_calls:[{function:{name:'removePart',arguments:{part:1}}}]},done:true});
+   return null;
+  },
+  async execute(){const error=new Error('確認が必要です');error.confirmation={name:'removePart',summary:'パートを削除します'};throw error;},
+  async confirm(){return false;}
+ });
+ assert.match(declined.content,/やめました/);
+ assert.equal(declined.writes,0);
+ let steps=0;
+ const limited=await Agent.runTurn({
+  messages:[{role:'user',content:'繰り返して'}],maxSteps:2,
+  async chat(messages,{absorb}){steps++;absorb({message:{tool_calls:[{function:{name:'getScoreSummary',arguments:{}}}]},done:true});return null;},
+  async execute(){return {ok:true,summary:'概要',wrote:0};}
+ });
+ assert.equal(limited.limited,true);
+ assert.equal(steps,3);
+});
 test('tool registry is empty until a later phase registers one, and destructive calls wait',async()=>{
  assert.equal(Agent.listTools().length,0);
  Agent.registerTool({name:'getScoreSummary',description:'楽譜の要約',handler:()=>'要約'});

@@ -888,6 +888,13 @@
 .agent-form textarea:focus-visible{outline:2px solid #5293cc;outline-offset:2px}
 .agent-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}
 .agent-actions #agentClear{margin-right:auto}
+.agent-step{margin:0;padding:6px 8px;border-radius:6px;background:#f3f7fb;color:#315e83;font-size:12px;line-height:1.55}
+.agent-confirm{margin:0;padding:10px;border:1px solid #e1c48a;border-radius:8px;background:#fff8ea;color:#5c4314}
+.agent-confirm p{margin:0 0 8px;font-size:13px;line-height:1.6;white-space:pre-wrap}
+.agent-confirm div{display:flex;justify-content:flex-end;gap:6px}
+.agent-confirm button,.agent-undo{border:1px solid #c9d9e6;border-radius:6px;background:#fff;color:#315e83;padding:6px 10px;font-size:12px}
+.agent-confirm button:first-child{background:#225e95;border-color:#225e95;color:#fff}
+.agent-undo{align-self:flex-start}
 @media screen and (max-width:760px){
  .agent-panel{top:auto;left:0;width:auto;height:min(62dvh,520px);border-left:0;border-top:1px solid var(--border);border-radius:12px 12px 0 0;box-shadow:0 -10px 30px #17344a28;padding-bottom:max(10px,env(safe-area-inset-bottom))}
  .shell.agent-open>.workspace,.shell.agent-open>.score-overview,.shell.agent-open>.arrangement{margin-right:0}
