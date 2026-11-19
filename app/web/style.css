@@ -889,7 +889,7 @@
 .agent-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}
 .agent-actions #agentClear{margin-right:auto}
 .agent-step{margin:0;padding:6px 8px;border-radius:6px;background:#f3f7fb;color:#315e83;font-size:12px;line-height:1.55}
-.agent-confirm{margin:0;padding:10px;border:1px solid #e1c48a;border-radius:8px;background:#fff8ea;color:#5c4314}
+.agent-confirm{margin:0;padding:10px;border:1px solid #e1c48a;border-radius:8px;background:#fff8ea;color:#5c4314;max-height:42vh;overflow:auto}
 .agent-confirm p{margin:0 0 8px;font-size:13px;line-height:1.6;white-space:pre-wrap}
 .agent-confirm div{display:flex;justify-content:flex-end;gap:6px}
 .agent-confirm button,.agent-undo{border:1px solid #c9d9e6;border-radius:6px;background:#fff;color:#315e83;padding:6px 10px;font-size:12px}

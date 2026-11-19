@@ -4,10 +4,11 @@
  const B=root.KanadeEditing||(typeof require==='function'?require('./editing.js'):null);
  const I=root.KanadeInstruments||(typeof require==='function'?require('./instruments.js'):null);
  const Ex=root.KanadeExport||(typeof require==='function'?require('./musicxml.js'):null);
- const api=factory(C,B,I,Ex);
+ const Arrange=root.KanadeArrange||(typeof require==='function'?require('./agent-arrange.js'):null);
+ const api=factory(C,B,I,Ex,Arrange);
  if(typeof module==='object'&&module.exports)module.exports=api;
  root.KanadeAgentTools=api;
-})(typeof globalThis!=='undefined'?globalThis:this,function(C,B,I,Ex){
+})(typeof globalThis!=='undefined'?globalThis:this,function(C,B,I,Ex,Arrange){
  'use strict';
  const DENOMS=new Set([1,2,4,8,16,32,64]);
  const KEY_NAMES={
@@ -22,7 +23,9 @@
   setMetadata:'曲名または作曲者を変更',setTempo:'テンポを変更',setKey:'調号を変更',setTimeSignature:'拍子を変更',
   addParts:'パートを追加',applyEnsembleTemplate:'編成テンプレートを適用',removePart:'パートを削除',
   insertNotes:'音符を入力',insertRests:'休符を入力',transpose:'移調',addMeasures:'小節を追加',
-  removeMeasures:'小節を削除',undoAiChange:'直前のAI編集を取り消し',exportMusicXML:'MusicXMLを書き出し'
+  removeMeasures:'小節を削除',undoAiChange:'直前のAI編集を取り消し',exportMusicXML:'MusicXMLを書き出し',
+  proposeInstrumentation:'編成を提案',arrangeMelody:'旋律を編成に分配',doublePart:'パートを重ねる',
+  voiceChords:'和音を配置',checkRanges:'音域を確認',fixRanges:'音域に収める',getInstrumentRanges:'音域表を確認'
  };
 
  function fail(message){throw new Error(message);}
@@ -424,6 +427,89 @@
    description:'直前のAIによる編集を1段階だけ元に戻す。',
    parameters:{type:'object',properties:{}},
    undo:true
+  },
+  proposeInstrumentation:{
+   description:'人数や足りない楽器から編成を提案し、確認後に入れ替える。headcountは人数。missingは抜く楽器。styleはconcert、small、marching、bright。levelは初級、中級、上級。確認前は楽譜を変えない。',
+   parameters:{type:'object',properties:{headcount:{type:'integer'},missing:{type:'array',items:{type:'string'}},style:{type:'string'},level:{type:'string'}}},
+   confirm(doc,args){
+    const planned=Arrange.plan(args||{});
+    const replacing=partsOf(doc).length>1||hasNotes(doc);
+    return `${planned.summary}\n${replacing?'実行すると、いまのパートと音符をこの編成に入れ替えます。':'実行すると、空の楽譜をこの編成にします。'}`;
+   },
+   run(doc,args){
+    const planned=Arrange.plan(args||{});
+    const concert=concertOf(doc);
+    const created=planned.keys.map((key,index)=>partFromItem(doc,I.byKey.get(key),concert,{reuse:index===0?emptyMeasures(doc):null}));
+    const numbered=I.numberParts(created,created.map((_,index)=>index));
+    return {document:assemble(doc,numbered),focusPart:0,summary:`${planned.summary}\nこの編成に入れ替えました。`};
+   }
+  },
+  arrangeMelody:{
+   description:'既存の旋律を編成へ分配する。melodyはパート番号。fromとtoは小節。chordsは小節ごとのC、F、G。levelは初級、中級、上級。移調と音域はツールが処理する。',
+   parameters:{type:'object',properties:{melody:{type:'string'},from:{type:'integer'},to:{type:'integer'},level:{type:'string'},chords:{type:'array',items:{type:'string'}}}},
+   confirm(doc,args){
+    const parts=partsOf(doc);
+    const melody=args.melody===undefined||args.melody===null||args.melody===''?parts.findIndex(part=>part.measures.some(bar=>bar.events.some(event=>event.type==='note'))):resolvePart(doc,args.melody);
+    const from=(args.from||1)-1,to=(args.to||parts[0].measures.length)-1;
+    const busy=parts.some((part,index)=>index!==melody&&part.measures.slice(Math.max(0,from),Math.max(0,to)+1).some(bar=>bar.events.some(event=>event.type==='note')));
+    return busy?'指定範囲にある他パートの音符を、旋律の分配で置き換えます。':null;
+   },
+   run(doc,args){
+    const melody=args.melody===undefined||args.melody===null||args.melody===''?undefined:resolvePart(doc,args.melody)+1;
+    const arranged=Arrange.arrangeMelody(doc,{...args,melody});
+    return {document:assemble(doc,arranged.parts),summary:arranged.summary};
+   }
+  },
+  doublePart:{
+   description:'パートを別のパートへユニゾン、octave、thirdで重ねる。移調楽器は記譜音に直す。fromとtoはパート番号。',
+   parameters:{type:'object',properties:{from:{type:'integer'},to:{type:'integer'},start:{type:'integer'},end:{type:'integer'},interval:{type:'string'},level:{type:'string'}},required:['from','to']},
+   confirm(doc,args){
+    const target=partsOf(doc)[resolvePart(doc,args.to)];
+    const start=(args.start||1)-1,end=(args.end||target.measures.length)-1;
+    return target.measures.slice(start,end+1).some(bar=>bar.events.some(event=>event.type==='note'))?`${target.instrument}の音符を重ね書きで置き換えます。`:null;
+   },
+   run(doc,args){
+    const doubled=Arrange.doublePart(doc,{...args,from:resolvePart(doc,args.from)+1,to:resolvePart(doc,args.to)+1});
+    return {document:assemble(doc,doubled.parts),focusPart:doubled.focus,summary:doubled.summary};
+   }
+  },
+  voiceChords:{
+   description:'和音記号を低音と内声へ配置する。chordsはC、Dm、G7のように小節ごと。levelでリズムが変わる。',
+   parameters:{type:'object',properties:{chords:{type:'array',items:{type:'string'}},from:{type:'integer'},level:{type:'string'}},required:['chords']},
+   confirm(doc,args){
+    const from=(args.from||1)-1,to=from+(args.chords||[]).length-1;
+    const busy=partsOf(doc).some(part=>part.clef!=='percussion'&&part.measures.slice(Math.max(0,from),to+1).some(bar=>bar.events.some(event=>event.type==='note')));
+    return busy?'和音を置く範囲の既存の音符を置き換えます。':null;
+   },
+   run(doc,args){
+    const voiced=Arrange.voiceChords(doc,args);
+    return {document:assemble(doc,voiced.parts),summary:voiced.summary};
+   }
+  },
+  checkRanges:{
+   description:'全パートの音符が難易度の実用音域に入るか確認する。編集しない。levelは初級、中級、上級。',
+   parameters:{type:'object',properties:{level:{type:'string'}}},
+   run(doc,args){return {summary:Arrange.reportProblems(partsOf(doc),Arrange.levelOf(args.level))};}
+  },
+  fixRanges:{
+   description:'音域外の音符をオクターブ単位で実用音域へ移す。音名の種類は変えない。',
+   parameters:{type:'object',properties:{level:{type:'string'}}},
+   confirm(doc,args){
+    const level=Arrange.levelOf(args.level);
+    const count=partsOf(doc).reduce((sum,part)=>sum+Arrange.checkPart(part,level).length,0);
+    return count?`音域外の${count}音をオクターブ移動します。`:null;
+   },
+   run(doc,args){
+    const level=Arrange.levelOf(args.level);
+    const fixed=partsOf(doc).map(part=>Arrange.fixPart(part,level));
+    const moved=fixed.reduce((sum,item)=>sum+item.moved,0);
+    return {document:assemble(doc,fixed.map(item=>item.part)),summary:moved?`${moved}音を音域内へ移しました。\n${Arrange.reportProblems(fixed.map(item=>item.part),level)}`:`移動が必要な音はありません。\n${Arrange.reportProblems(partsOf(doc),level)}`};
+   }
+  },
+  getInstrumentRanges:{
+   description:'開いているパートの実用音域を返す。levelは初級、中級、上級。',
+   parameters:{type:'object',properties:{level:{type:'string'}}},
+   run(doc,args){return {summary:Arrange.describeRanges(partsOf(doc),Arrange.levelOf(args.level))};}
   },
   exportMusicXML:{
    description:'MusicXMLを書き出してダウンロードする。全文は返さない。',
