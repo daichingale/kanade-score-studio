@@ -241,7 +241,10 @@
  root.addEventListener('online',()=>{if(room)poll();});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&room)poll();});
  root.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installedPrompt=e;$('installApp').hidden=false;});
  $('installApp').onclick=async()=>{if(installedPrompt){await installedPrompt.prompt();installedPrompt=null;$('installApp').hidden=true;}};
- if('serviceWorker' in navigator&&!root.__KANADE_DEV__&&location.protocol==='https:')navigator.serviceWorker.register('/sw.js').catch(()=>{});
+ if('serviceWorker' in navigator&&!root.__KANADE_DEV__&&location.protocol==='https:'){
+  const sw=root.KanadePath?.resolve('/sw.js')||'/sw.js';
+  navigator.serviceWorker.register(sw).catch(()=>{});
+ }
  const params=new URLSearchParams(location.hash.slice(1));
  if(params.has('room')){
   inviteInput.value=server+'/index.html'+location.hash;

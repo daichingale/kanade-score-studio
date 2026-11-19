@@ -105,12 +105,16 @@
  async function refreshModels(){
   setStatus('Ollama のモデル一覧を確認しています。');
   try{
-   const response=await fetch('/__agent/tags',{cache:'no-store'});
-   if(!response.ok){fillModels([]);setStatus(Agent.connectionMessage('unavailable'));return;}
+   const {response,mode}=await Agent.fetchTags({});
+   if(!response.ok){fillModels([]);setStatus(Agent.connectionMessage('unavailable',{direct:mode==='direct'}));return;}
    const names=Agent.modelNames(await response.json());
    fillModels(names);
-   setStatus(names.length?connectedStatus():Agent.connectionMessage('empty'));
-  }catch{fillModels([]);setStatus(Agent.connectionMessage('unavailable'));}
+   const via=mode==='direct'?'（このPCの Ollama に直接接続）':'';
+   setStatus(names.length?`${connectedStatus()}${via}`:Agent.connectionMessage('empty'));
+  }catch(error){
+   fillModels([]);
+   setStatus(Agent.connectionMessage('unavailable',{direct:true,cors:!!error.cors}));
+  }
  }
  function connectedStatus(){
   return 'ローカルの Ollama に接続しています。AIの編集は元に戻せます。';
@@ -138,7 +142,7 @@
  }
  async function streamChat(working,{signal,onText,absorb}){
   const payload=Agent.buildChatPayload({model:select.value,history:working,summary:readSummary(),includeTools:true});
-  const response=await fetch('/__agent/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal,cache:'no-store'});
+  const response=await Agent.postChat(payload,{signal});
   if(!response.ok){
    const failure=await response.json().catch(()=>({}));
    const error=new Error(failure.error||'chat failed');

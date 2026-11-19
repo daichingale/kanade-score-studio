@@ -19,5 +19,5 @@ test('manifest stays installable',()=>{
  const manifest=JSON.parse(fs.readFileSync(path.join(__dirname,'../manifest.webmanifest'),'utf8'));
  assert.equal(manifest.display,'standalone');
  assert.ok(manifest.icons.length>=2);
- assert.match(manifest.start_url,/^\/index\.html$/);
+ assert.match(manifest.start_url,/^\.\/index\.html$/);
 });

@@ -176,10 +176,60 @@
   for(const preferred of PREFERRED_MODELS)if(names.includes(preferred))return preferred;
   return names.find(name=>/qwen/i.test(name))||names[0]||'';
  }
- function connectionMessage(kind){
-  if(kind==='empty')return `Ollama は起動していますが、使えるモデルがありません。ターミナルで次を実行してから「再接続」を押してください。\n\n${INSTALL_COMMAND}`;
+ const OLLAMA_ORIGIN='http://127.0.0.1:11434';
+ function appPath(path){
+  return root.KanadePath?.resolve(path)||path;
+ }
+ function pagesOrigin(){
+  try{return typeof location==='object'&&location.origin?location.origin:'';}catch{return '';}
+ }
+ function isHttpsStaticHost(){
+  try{return typeof location==='object'&&location.protocol==='https:'&&!root.__KANADE_DEV__;}catch{return false;}
+ }
+ function pagesOllamaHint(){
+  const origin=pagesOrigin();
+  const allow=origin?`OLLAMA_ORIGINS="${origin}" `:'OLLAMA_ORIGINS="（このサイトのURL）" ';
+  return `GitHub Pages など静的ホストからは、同じPCの Ollama にブラウザが直接つながります。別ターミナルで次のように起動してください。\n\n${allow}ollama serve\n${INSTALL_COMMAND}\n\nその後「再接続」を押します。ローカル開発（npm run dev）のときは開発サーバーのプロキシ経由のままです。Ollama を起動しない場合は相談パネルだけ使えませんが、楽譜編集は続けられます。`;
+ }
+ function connectionMessage(kind,{direct=false,cors=false}={}){
+   const pages=isHttpsStaticHost();
+  if(kind==='empty')return `Ollama は起動していますが、使えるモデルがありません。ターミナルで次を実行してから「再接続」を押してください。\n\n${INSTALL_COMMAND}${pages?'\n\n'+pagesOllamaHint():''}`;
   if(kind==='missing')return `選んだモデルが Ollama にありません。ターミナルで次を実行してから「再接続」を押してください。\n\n${INSTALL_COMMAND}\n\nメモリが少ない場合は ollama pull qwen2.5:3b も使えます。`;
-  return `Ollama に接続できません。別のターミナルで Ollama を起動してください。\n\nollama serve\n${INSTALL_COMMAND}\n\n起動後に「再接続」を押してください。譜面の編集はこのまま続けられます。`;
+  if(cors&&pages)return `${pagesOllamaHint()}\n\nブラウザが Ollama への接続を拒否した場合は、OLLAMA_ORIGINS にこのページの URL（${pagesOrigin()}）が入っているか確認してください。`;
+  const intro=direct&&pages?'ローカルの Ollama（127.0.0.1:11434）に接続できません。':'Ollama に接続できません。別のターミナルで Ollama を起動してください。';
+  return `${intro}\n\nollama serve\n${INSTALL_COMMAND}\n\n起動後に「再接続」を押してください。譜面の編集はこのまま続けられます。${pages&&!direct?'\n\n'+pagesOllamaHint():''}`;
+ }
+ async function fetchTags(init){
+  const proxy=appPath('/__agent/tags');
+  if(root.__KANADE_DEV__){
+   const response=await fetch(proxy,{...init,cache:'no-store'});
+   return {response,mode:'proxy'};
+  }
+  try{
+   const response=await fetch(proxy,{...init,cache:'no-store'});
+   if(response.ok||response.status===401||response.status===403||response.status===503)return {response,mode:'proxy'};
+  }catch{/* static host: no dev proxy */}
+  try{
+   const response=await fetch(`${OLLAMA_ORIGIN}/api/tags`,{...init,cache:'no-store',mode:'cors'});
+    return {response,mode:'direct'};
+  }catch(error){
+   const failure=new Error(error.message||'fetch failed');
+   failure.cors=true;
+   throw failure;
+  }
+ }
+ async function postChat(payload,init){
+  const proxy=appPath('/__agent/chat');
+  const body=JSON.stringify(payload);
+  const headers={'Content-Type':'application/json',...(init?.headers||{})};
+  if(root.__KANADE_DEV__){
+   return fetch(proxy,{...init,method:'POST',headers,body,cache:'no-store'});
+  }
+  try{
+   const response=await fetch(proxy,{...init,method:'POST',headers,body,cache:'no-store'});
+   if(response.ok||response.status>=400&&response.status!==404)return response;
+  }catch{/* static host */}
+  return fetch(`${OLLAMA_ORIGIN}/api/chat`,{...init,method:'POST',headers,body,cache:'no-store',mode:'cors'});
  }
  function readNdjson(buffer,{flush=false}={}){
   let source=String(buffer??'');
@@ -311,5 +361,5 @@
   undo(count){if(!host?.undoAi)throw new Error('取り消せる編集がありません');host.undoAi(count);}
  };
 
- return {STORAGE_KEY,DEFAULT_MODEL,INSTALL_COMMAND,PREFERRED_MODELS,systemPrompt,keyLabel,summarizeScore,trimHistory,buildMessages,buildChatPayload,registerTool,unregisterTool,listTools,toolSchemas,callTool,modelNames,pickModel,connectionMessage,readNdjson,textFromEvent,emptyStream,absorbEvent,finishStream,runTurn,attach,api};
+ return {STORAGE_KEY,DEFAULT_MODEL,INSTALL_COMMAND,PREFERRED_MODELS,systemPrompt,keyLabel,summarizeScore,trimHistory,buildMessages,buildChatPayload,registerTool,unregisterTool,listTools,toolSchemas,callTool,modelNames,pickModel,connectionMessage,pagesOllamaHint,fetchTags,postChat,readNdjson,textFromEvent,emptyStream,absorbEvent,finishStream,runTurn,attach,api};
 });

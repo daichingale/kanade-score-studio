@@ -57,6 +57,7 @@ test('model choice prefers a saved model, then Qwen, and explains a missing Olla
  assert.equal(Agent.pickModel([{name:'nope'}],''),'');
  assert.deepEqual(Agent.modelNames({models:[{name:'qwen2.5:7b'},'qwen2.5:7b',{name:'llama3:8b'}]}),['qwen2.5:7b','llama3:8b']);
  assert.match(Agent.connectionMessage('unavailable'),/ollama serve/);
+ assert.match(Agent.pagesOllamaHint(),/OLLAMA_ORIGINS/);
  assert.match(Agent.connectionMessage('empty'),/ollama pull qwen2\.5:7b/);
  assert.match(Agent.connectionMessage('missing'),/ollama pull qwen2\.5:7b/);
 });
