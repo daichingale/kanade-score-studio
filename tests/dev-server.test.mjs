@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { startServer } from '../scripts/dev.mjs';
+import { startServer, prepareAgentChat } from '../scripts/dev.mjs';
 
 async function fixture(t, options = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'kanade-test-'));
@@ -149,6 +149,24 @@ test('proxies Ollama chat as a loopback stream and rejects other callers', async
   assert.equal((await fetch(`${dev.url}/__agent/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: huge })).status, 413);
 });
 
+test('forwards tool calls and tool results to Ollama',()=>{
+ const payload=prepareAgentChat({
+  model:'qwen2.5:7b',
+  messages:[
+   {role:'user',content:'曲名を変えて'},
+   {role:'assistant',content:'',tool_calls:[{function:{name:'setMetadata',arguments:{title:'ファンファーレ'}}}]},
+   {role:'tool',tool_name:'setMetadata',content:'{"ok":true,"summary":"変更しました"}'}
+  ],
+  tools:[{type:'function',function:{name:'setMetadata',description:'曲名を変える',parameters:{type:'object',properties:{title:{type:'string'}}}}}]
+ });
+ assert.equal(payload.stream,true);
+ assert.equal(payload.messages[1].tool_calls[0].function.name,'setMetadata');
+ assert.deepEqual(payload.messages[1].tool_calls[0].function.arguments,{title:'ファンファーレ'});
+ assert.equal(payload.messages[2].role,'tool');
+ assert.equal(payload.messages[2].tool_name,'setMetadata');
+ assert.equal(payload.tools[0].function.name,'setMetadata');
+ assert.throws(()=>prepareAgentChat({model:'qwen2.5:7b',messages:[{role:'tool',tool_name:'../x',content:'no'}]}),/invalid-request/);
+});
 test('reports a stopped Ollama without opening the chat route to the network', async t => {
   const dev = await fixture(t, { ollamaOrigin: 'http://127.0.0.1:1' });
   const tags = await fetch(`${dev.url}/__agent/tags`);

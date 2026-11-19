@@ -3312,4 +3312,26 @@
       persist();render();transport?.edit();
     }
   };
+  // AI edits use commit/save paths. applyRemote drops undo and is not an agent entry.
+  if(window.KanadeAgent?.attach)window.kanadeAgent=window.KanadeAgent.attach({
+    getDocument:()=>documentScore(),
+    apply(next,label,focusPart){
+      if(window.KanadeCollab?.active||window.KanadeCollab?.blocked)throw Error('共同編集中はAIから楽譜を変更できません。退出してから実行してください。');
+      if(voiceScope)endVoiceScope();
+      const errors=C.validateScore(next);if(errors.length)throw Error(errors[0]);
+      const parts=C.scoreParts(next);
+      partIndex=Number.isInteger(focusPart)?Math.max(0,Math.min(focusPart,parts.length-1)):Math.min(partIndex,parts.length-1);
+      const part=parts[partIndex],mi=Math.min(caret.mi,part.measures.length-1);
+      commit(part,label,null,mi,{mi,index:0},null,{document:next});
+    },
+    undoAi(count){
+      if(window.KanadeCollab?.active)throw Error('共同編集中は、共同編集の元に戻すを使ってください');
+      if(!Number.isInteger(count)||count<1)throw Error('取り消す件数が不正です');
+      if(undo.length<count)throw Error('取り消せるAIの変更がありません');
+      for(let i=0;i<count;i++)if(!String(undo[undo.length-1-i].label||'').startsWith('AI:'))throw Error('その後に手作業の編集があるため、まとめては戻せません');
+      for(let i=0;i<count;i++)undoAction();
+      showToast('AIの変更を取り消しました');
+    },
+    download(xml,filename){download(xml,filename,'application/vnd.recordare.musicxml+xml;charset=utf-8');}
+  });
 })();

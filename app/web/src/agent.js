@@ -1,9 +1,10 @@
-/* Phase 1 consult-only assistant. Score tools can register here later; none ship yet. */
+/* Local wind-band assistant: prompts, the Ollama tool loop, and the score command API. */
 (function(root, factory){
- const api=factory();
+ const api=factory(root);
  if(typeof module==='object'&&module.exports)module.exports=api;
  root.KanadeAgent=api;
-})(typeof globalThis!=='undefined'?globalThis:this,function(){
+ root.kanadeAgent=api.api;
+})(typeof globalThis!=='undefined'?globalThis:this,function(root){
  'use strict';
  const STORAGE_KEY='kanade.agent.chat.v1';
  const DEFAULT_MODEL='qwen2.5:7b';
@@ -26,15 +27,17 @@
 
  function systemPrompt(){
   return [
-   'あなたは吹奏楽とマーチングバンドの指導・編曲に詳しい相談相手です。Kanadeという楽譜エディタの中で、ユーザーの質問に日本語で答えます。',
-   '答える範囲は、編成とオーケストレーション、楽器の一般的な音域と移調、記譜の習慣、リハーサルと基礎練習、アンサンブルの合わせ方、マーチングのドリル・カウント・ステップ・セットの初歩です。',
-   '結論を先に書き、そのあと理由と具体例を短く添えてください。必要なときだけ箇条書きにします。',
-   '音域は「一般的な吹奏楽の記譜音域」として示し、学年、楽器、楽譜の習慣で変わることを添えてください。',
-   'コンクール規定、著作権、人数制限、課題曲の指定は記憶だけで断定しないでください。確認が必要だと書いてください。',
-   '開いている楽譜の概要が別のシステムメッセージで渡されることがあります。曲名・パート・小節数・テンポ・調だけの読み取り専用の要約です。要約に無い旋律や和音を、見たように話さないでください。',
-   'この段階では楽譜を編集できません。音符の入力や削除を頼まれたら、Kanade上の操作を言葉で案内してください。',
-   '医療診断はしないでください。身体の使い方で痛みがある場合は、指導者と医療機関に相談するよう添えてください。',
-   'Kanadeの約束: 音符は記譜音です。実音との差はパートの transposition（concert、bb、eb、f など）で表します。編成の例は wind（吹奏楽）、smallWind（小編成吹奏楽）、windSymphony、marching です。'
+   'あなたは吹奏楽とマーチングバンドの専門家です。Kanadeの中で相談に答え、必要ならツールで楽譜を編集します。返答は日本語で、結論を先に短く書きます。',
+   '音符は記譜音です。B♭クラリネットとB♭トランペットは実音より長2度高く、E♭アルトサックスは長6度高く、Fホルンは完全5度高く書きます。ユーザーが実音を言ったときは、その楽器の記譜音に直してから入力します。',
+   'パート番号と小節番号は1から数えます。引数は指定された項目だけを使い、余分な文章をJSONに混ぜません。',
+   '編集の前に getScoreSummary を呼びます。音符の中身が必要なときだけ readMeasures を使います。',
+   '曲名は setMetadata、テンポは setTempo、コンサート調は setKey（ハ長調は fifths 0、変ホ長調は -3、変ロ長調は -2）、拍子は setTimeSignature です。',
+   '「吹奏楽編成にして」は applyEnsembleTemplate です。空の楽譜なら id に wind または smallWind を渡します。音符がある楽譜を入れ替えるときだけ replace を true にします。楽器を足すだけなら addParts に keys を渡します。',
+   '音符は insertNotes、休符は insertRests です。4小節のファンファーレなら measure 1、beat 1 から、四分音符は den 4 の配列を一度に渡します。既存の音符を置き換えるときだけ overwrite を true にします。',
+   '「全音上げて」は transpose の semitones を 2、「半音上げて」は 1 です。音名で一段上げるときは steps を 1 にします。これは記譜音を動かす操作で、楽器の移調設定自体は変えません。',
+   '小節を足すのは addMeasures、消すのは removeMeasures、パートを消すのは removePart です。削除はユーザーの確認を待ちます。',
+   '直前の自分の編集を1段階戻すのは undoAiChange です。まとめて戻すボタンはユーザーが押します。MusicXMLは exportMusicXML です。',
+   'ツールは必要な回数だけ使い、同じ失敗を繰り返しません。コンクール規定や著作権は記憶だけで断定しません。音域は一般的な記譜音域として示し、学年や楽器で変わることを添えます。'
   ].join('\n');
  }
 
@@ -107,6 +110,20 @@
   for(const item of trimHistory(history))messages.push({role:item.role,content:item.content});
   return messages;
  }
+ function turnMessages({history,summary}={}){
+  const messages=[{role:'system',content:systemPrompt()}];
+  if(typeof summary==='string'&&summary.trim())messages.push({role:'system',content:summary.trim()});
+  for(const item of history||[]){
+   if(!item)continue;
+   if(item.role==='tool'&&typeof item.tool_name==='string'&&typeof item.content==='string')
+    messages.push({role:'tool',tool_name:item.tool_name,content:item.content});
+   else if(item.role==='assistant'&&Array.isArray(item.tool_calls))
+    messages.push({role:'assistant',content:typeof item.content==='string'?item.content:'',tool_calls:item.tool_calls});
+   else if((item.role==='user'||item.role==='assistant')&&typeof item.content==='string'&&item.content)
+    messages.push({role:item.role,content:item.content});
+  }
+  return messages;
+ }
  function registerTool(tool){
   if(!tool||typeof tool.name!=='string'||!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(tool.name))throw new Error('ツール名が不正です');
   if(typeof tool.description!=='string'||typeof tool.handler!=='function')throw new Error('ツールの定義が不足しています');
@@ -125,7 +142,7 @@
   return listTools().map(tool=>({type:'function',function:{name:tool.name,description:tool.description,parameters:tool.parameters}}));
  }
  function buildChatPayload({model,history,summary,includeTools=false}={}){
-  const payload={model,stream:true,messages:buildMessages({history,summary})};
+  const payload={model,stream:true,messages:turnMessages({history,summary})};
   if(includeTools){
    const schemas=toolSchemas();
    if(schemas.length)payload.tools=schemas;
@@ -182,6 +199,115 @@
   const content=event.message&&typeof event.message.content==='string'?event.message.content:'';
   return {content,done:event.done===true};
  }
+ function emptyStream(){return {content:'',calls:[],error:''};}
+ function mergeCall(calls,call){
+  const fn=call?.function||{};
+  let slot=call?.id?calls.find(item=>item.id===call.id):null;
+  if(!slot&&Number.isInteger(call?.index))slot=calls[call.index];
+  if(!slot){slot={id:call?.id||'',name:'',arguments:''};calls.push(slot);}
+  if(typeof fn.name==='string'&&fn.name)slot.name=fn.name;
+  if(fn.arguments&&typeof fn.arguments==='object')slot.arguments=JSON.stringify(fn.arguments);
+  else if(typeof fn.arguments==='string'){
+   slot.arguments=fn.arguments.startsWith('{')&&slot.arguments.startsWith('{')?fn.arguments:slot.arguments+fn.arguments;
+  }
+ }
+ function absorbEvent(state,event){
+  if(!event||typeof event!=='object')return state;
+  if(typeof event.error==='string'&&event.error.trim())state.error=event.error.trim();
+  const message=event.message;
+  if(message&&typeof message.content==='string')state.content+=message.content;
+  const calls=message&&(message.tool_calls||message.toolCalls);
+  if(Array.isArray(calls))for(const call of calls)mergeCall(state.calls,call);
+  return state;
+ }
+ function finishStream(state){
+  if(state.error)return {error:state.error,content:state.content,toolCalls:[]};
+  const toolCalls=[];
+  for(const call of state.calls){
+   if(!call.name)continue;
+   let args={};
+   if(call.arguments){
+    try{args=JSON.parse(call.arguments);}
+    catch{return {error:`ツール ${call.name} の引数を読めません`,content:state.content,toolCalls:[]};}
+   }
+   if(!args||typeof args!=='object'||Array.isArray(args))args={};
+   toolCalls.push({name:call.name,arguments:args});
+  }
+  return {content:state.content,toolCalls};
+ }
+ async function runTurn({messages,chat,execute,confirm,maxSteps=6,signal,onText,onStep}){
+  const working=messages.map(message=>({role:message.role,content:message.content}));
+  let steps=0,writes=0;
+  while(steps<=maxSteps){
+   if(signal?.aborted){const error=new Error('中断しました');error.name='AbortError';throw error;}
+   const stream=emptyStream();
+   const response=await chat(working,{signal,onText,absorb:event=>absorbEvent(stream,event)});
+   const finished=response?.toolCalls?response:finishStream(stream);
+   if(finished.error)return {error:finished.error,content:finished.content||'',messages:working,writes};
+   if(finished.toolCalls?.length){
+    steps++;
+    if(steps>maxSteps){
+     const content=`${finished.content?finished.content+'\n':''}ツールの連続実行が上限に達したので、ここまでで回答します。`;
+     return {content,messages:working,writes,limited:true};
+    }
+    working.push({role:'assistant',content:finished.content||'',tool_calls:finished.toolCalls.map(call=>({function:{name:call.name,arguments:call.arguments}}))});
+    for(const call of finished.toolCalls){
+     onStep?.({name:call.name,phase:'start'});
+     let result;
+     try{result=await execute(call);}
+     catch(error){
+      if(error?.confirmation){
+       onStep?.({name:call.name,phase:'confirm',text:error.confirmation.summary});
+       const accepted=confirm?await confirm(error.confirmation):false;
+       if(!accepted)result={ok:false,error:'ユーザーが実行をやめました'};
+       else try{result=await execute(call,{confirmed:true});}
+       catch(failure){result={ok:false,error:failure instanceof Error?failure.message:String(failure)};}
+      }else result={ok:false,error:error instanceof Error?error.message:String(error)};
+     }
+     if(result?.wrote)writes+=result.wrote;
+     onStep?.({name:call.name,phase:'done',ok:result?.ok!==false,text:result?.summary||result?.error||'完了'});
+     working.push({role:'tool',tool_name:call.name,content:JSON.stringify({ok:result?.ok!==false,summary:result?.summary||'',error:result?.error||''}).slice(0,4000)});
+    }
+    continue;
+   }
+   return {content:finished.content||'',messages:working,writes};
+  }
+  return {content:'ツールの連続実行が上限に達したので、ここまでで回答します。',messages:working,writes,limited:true};
+ }
+ let host=null;
+ function dispatch(name,args,{confirmed=false}={}){
+  const Tools=root.KanadeAgentTools;
+  if(!Tools)throw new Error('楽譜ツールが読み込まれていません');
+  if(!host)throw new Error('楽譜への接続がありません');
+  const op=Tools.operations[name];
+  if(!op)throw new Error('未登録のツールです');
+  if(op.undo){host.undoAi(1);return {ok:true,summary:'直前のAI編集を1段階戻しました',wrote:-1};}
+  const doc=host.getDocument();
+  if(!confirmed){
+   const summary=Tools.confirmText(doc,name,args||{});
+   if(summary){const error=new Error('確認が必要です');error.confirmation={name,summary,args};throw error;}
+  }
+  const outcome=Tools.run(doc,name,args||{});
+  if(outcome.document)host.apply(outcome.document,`AI: ${outcome.summary}`,outcome.focusPart);
+  if(outcome.xml)host.download(outcome.xml,outcome.filename);
+  return {ok:true,summary:outcome.summary,wrote:outcome.document?1:0};
+ }
+ function attach(next){
+  host=next||null;
+  const Tools=root.KanadeAgentTools;
+  if(!Tools)return api;
+  for(const tool of listTools())unregisterTool(tool.name);
+  for(const spec of Tools.list()){
+   registerTool({name:spec.name,description:spec.description,parameters:spec.parameters,destructive:spec.destructive,
+    handler:(args,options)=>dispatch(spec.name,args,options)});
+  }
+  return api;
+ }
+ const api={
+  attach,dispatch,list:()=>root.KanadeAgentTools?root.KanadeAgentTools.list():[],
+  call:(name,args,options)=>dispatch(name,args,options),
+  undo(count){if(!host?.undoAi)throw new Error('取り消せる編集がありません');host.undoAi(count);}
+ };
 
- return {STORAGE_KEY,DEFAULT_MODEL,INSTALL_COMMAND,PREFERRED_MODELS,systemPrompt,keyLabel,summarizeScore,trimHistory,buildMessages,buildChatPayload,registerTool,unregisterTool,listTools,toolSchemas,callTool,modelNames,pickModel,connectionMessage,readNdjson,textFromEvent};
+ return {STORAGE_KEY,DEFAULT_MODEL,INSTALL_COMMAND,PREFERRED_MODELS,systemPrompt,keyLabel,summarizeScore,trimHistory,buildMessages,buildChatPayload,registerTool,unregisterTool,listTools,toolSchemas,callTool,modelNames,pickModel,connectionMessage,readNdjson,textFromEvent,emptyStream,absorbEvent,finishStream,runTurn,attach,api};
 });
