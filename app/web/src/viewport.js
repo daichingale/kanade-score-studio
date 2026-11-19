@@ -43,11 +43,12 @@
  host.addEventListener('pointerdown',e=>{
   const phonePointer=mobile.matches&&e.button===0&&e.target.closest('#scoreHost svg');
   if(e.pointerType!=='touch'&&e.button!==1&&!(hand&&e.button===0)&&!phonePointer)return;
-  const flick=!!phonePointer&&!hand&&host.scrollWidth<=host.clientWidth+2;
+  const noteTarget=phonePointer&&!hand&&e.target.closest('[data-event-type="note"][data-implicit="0"]');
+  const flick=!!phonePointer&&!hand&&(host.scrollWidth<=host.clientWidth+2||!!noteTarget);
   e.preventDefault();root.KanadeWorkspace?.closePanels();host.dispatchEvent(new Event('kanade-viewchange'));
   pointers.set(e.pointerId,{x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,target:e.target,tap:e.pointerType==='touch'||!!phonePointer,flick,time:e.timeStamp});
   host.setPointerCapture(e.pointerId);
-  if(pointers.size===1){blocked=hand||e.button===1;gesture={kind:'pan',lastX:e.clientX,lastY:e.clientY};}
+  if(pointers.size===1){blocked=hand||e.button===1;gesture={kind:'pan',lastX:e.clientX,lastY:e.clientY,noteTarget};}
   if(pointers.size>=2){if(gesture?.kind==='pitch')pitchDrag('cancel');for(const point of pointers.values())point.flick=false;startPinch();}
  },{passive:false});
  host.addEventListener('pointermove',e=>{
@@ -59,8 +60,11 @@
    if(!frame)frame=requestAnimationFrame(()=>{frame=0;flush();});
   }else if(gesture?.kind==='pitch'){
    pitchDrag('move',point.y-point.startY);
-  }else if(gesture?.kind==='pan'){
+  }  else if(gesture?.kind==='pan'){
    const dx=point.x-point.startX,dy=point.y-point.startY;
+   if(!blocked&&gesture.noteTarget&&Math.abs(dy)>=8&&Math.abs(dy)>Math.abs(dx)*1.15&&pitchDrag('start')){
+    blocked=true;point.flick=false;gesture={kind:'pitch'};pitchDrag('move',dy);return;
+   }
    if(!blocked&&point.flick&&Math.abs(dy)>=8&&Math.abs(dy)>Math.abs(dx)*1.35&&pitchDrag('start')){
     blocked=true;point.flick=false;gesture={kind:'pitch'};pitchDrag('move',dy);return;
    }

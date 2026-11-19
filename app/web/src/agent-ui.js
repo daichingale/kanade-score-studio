@@ -7,6 +7,7 @@
  if(!Agent||!panel)return;
  const shell=document.querySelector('.shell');
  const toggle=$('agentToggle');
+ const mobile=$('agentMobile');
  const menu=$('agentMenu');
  const closeBtn=$('agentClose');
  const status=$('agentStatus');
@@ -42,7 +43,7 @@
  function setOpen(next){
   panel.hidden=!next;
   shell?.classList.toggle('agent-open',next);
-  for(const button of [toggle,menu]){
+  for(const button of [toggle,mobile,menu]){
    button?.setAttribute('aria-expanded',String(next));
    button?.setAttribute('aria-pressed',String(next));
   }
@@ -230,8 +231,7 @@
  }
 
  load();render();setStatus('パネルを開くと Ollama への接続を確認します。');
- toggle?.addEventListener('click',togglePanel);
- menu?.addEventListener('click',togglePanel);
+ for(const button of [toggle,mobile,menu])button?.addEventListener('click',togglePanel);
  closeBtn.addEventListener('click',close);
  reconnect.addEventListener('click',()=>{if(!busy)refreshModels();});
  clearBtn.addEventListener('click',clearHistory);
