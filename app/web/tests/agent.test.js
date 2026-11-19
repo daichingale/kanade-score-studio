@@ -1,0 +1,92 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const C=require('../src/core');
+const Agent=require('../src/agent');
+
+test('system prompt is a Japanese wind-band specialist and does not edit the score',()=>{
+ const prompt=Agent.systemPrompt();
+ assert.match(prompt,/吹奏楽/);
+ assert.match(prompt,/マーチング/);
+ assert.match(prompt,/日本語/);
+ assert.match(prompt,/編集できません/);
+ assert.match(prompt,/transposition/);
+ assert.match(prompt,/断定しない/);
+});
+
+test('score summary is read-only and lists title, parts, meter, tempo and key',()=>{
+ const noted=C.insertEvent(C.createScore(),0,0,C.makeNote({step:'C',alter:0,octave:5},4)).score;
+ const score={...noted,title:'テスト行進曲',composer:'山田',tempo:120,key:-3,instrument:'B♭ クラリネット 1',transposition:'bb',clef:'treble'};
+ score.ensembleParts=[{instrument:'フルート',clef:'treble',transposition:'concert',key:-1,measures:score.measures}];
+ const before=JSON.stringify(score);
+ const measures=score.measures;
+ const parts=score.ensembleParts;
+ const summary=Agent.summarizeScore(score,{measureId:score.measures[0].id});
+ assert.equal(JSON.stringify(score),before);
+ assert.equal(score.measures,measures);
+ assert.equal(score.ensembleParts,parts);
+ assert.match(summary,/テスト行進曲/);
+ assert.match(summary,/山田/);
+ assert.match(summary,/♩=120/);
+ assert.match(summary,/4\/4/);
+ assert.match(summary,/B♭ クラリネット 1/);
+ assert.match(summary,/フルート/);
+ assert.match(summary,/変ホ長調/);
+ assert.match(summary,/編集位置: B♭ クラリネット 1 の 1 小節目/);
+ assert.equal(summary.includes('C5'),false);
+ assert.equal(summary.includes(score.measures[0].events[0].id),false);
+ assert.match(Agent.summarizeScore(null),/取得できません/);
+});
+
+test('chat messages prepend the prompt and summary without rewriting history',()=>{
+ const history=[{role:'user',content:'クラリネットの音域は？'},{role:'note',content:'無視'}];
+ const payload=Agent.buildChatPayload({model:'qwen2.5:7b',history,summary:'曲名: 行進曲'});
+ assert.equal(payload.stream,true);
+ assert.equal(payload.model,'qwen2.5:7b');
+ assert.equal(payload.messages[0].role,'system');
+ assert.match(payload.messages[0].content,/吹奏楽/);
+ assert.match(payload.messages[1].content,/行進曲/);
+ assert.deepEqual(payload.messages.at(-1),{role:'user',content:'クラリネットの音域は？'});
+ assert.equal(history.length,2);
+ assert.equal(payload.tools,undefined);
+});
+
+test('model choice prefers a saved model, then Qwen, and explains a missing Ollama',()=>{
+ assert.equal(Agent.pickModel(['llama3.1:8b','qwen2.5:3b'],''),'qwen2.5:3b');
+ assert.equal(Agent.pickModel(['qwen2.5:3b','qwen2.5:7b'],'qwen2.5:3b'),'qwen2.5:3b');
+ assert.equal(Agent.pickModel([{name:'nope'}],''),'');
+ assert.deepEqual(Agent.modelNames({models:[{name:'qwen2.5:7b'},'qwen2.5:7b',{name:'llama3:8b'}]}),['qwen2.5:7b','llama3:8b']);
+ assert.match(Agent.connectionMessage('unavailable'),/ollama serve/);
+ assert.match(Agent.connectionMessage('empty'),/ollama pull qwen2\.5:7b/);
+ assert.match(Agent.connectionMessage('missing'),/ollama pull qwen2\.5:7b/);
+});
+
+test('ndjson chunks decode independently and a partial line waits',()=>{
+ const first=JSON.stringify({message:{role:'assistant',content:'前半'},done:false})+'\n';
+ const opened=Agent.readNdjson(first+JSON.stringify({message:{content:'後'}}));
+ assert.equal(opened.events.length,1);
+ assert.equal(Agent.textFromEvent(opened.events[0]).content,'前半');
+ assert.match(opened.rest,/後/);
+ const flushed=Agent.readNdjson(opened.rest,{flush:true});
+ assert.equal(Agent.textFromEvent(flushed.events[0]).content,'後');
+ const broken=Agent.readNdjson('not-json\n',{flush:true});
+ assert.equal(Agent.textFromEvent(broken.events[0]).error,'応答の形式を読み取れませんでした');
+});
+
+test('tool registry is empty until a later phase registers one, and destructive calls wait',async()=>{
+ assert.equal(Agent.listTools().length,0);
+ Agent.registerTool({name:'getScoreSummary',description:'楽譜の要約',handler:()=>'要約'});
+ try{
+  assert.equal(Agent.listTools()[0].handler,undefined);
+  assert.equal(Agent.buildChatPayload({model:'qwen2.5:7b',history:[]}).tools,undefined);
+  assert.equal(Agent.buildChatPayload({model:'qwen2.5:7b',history:[],includeTools:true}).tools[0].function.name,'getScoreSummary');
+  assert.equal(await Agent.callTool('getScoreSummary',{}), '要約');
+  Agent.unregisterTool('getScoreSummary');
+  Agent.registerTool({name:'removePart',description:'パート削除',destructive:true,handler:()=>'deleted'});
+  await assert.rejects(Agent.callTool('removePart',{part:1}),/確認/);
+  assert.equal(await Agent.callTool('removePart',{part:1},{confirmed:true}),'deleted');
+ }finally{
+  Agent.unregisterTool('getScoreSummary');
+  Agent.unregisterTool('removePart');
+ }
+ assert.equal(Agent.listTools().length,0);
+});

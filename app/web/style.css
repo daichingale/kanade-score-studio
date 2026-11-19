@@ -860,3 +860,39 @@
 #arrMeterFields label{display:flex;align-items:center;gap:6px}
 #arrMeterFields input{min-height:0}
 #arrMeterFields p,#arrMeterFields small{font-size:12px}
+
+/* Local wind-band chat. Fixed on the right; a bottom sheet on narrow screens. */
+.shell.agent-open{--agent-width:min(360px,34vw)}
+.agent-panel[hidden]{display:none!important}
+.agent-panel{position:fixed;top:46px;right:0;bottom:0;z-index:24;display:flex;flex-direction:column;width:var(--agent-width,min(360px,34vw));padding:12px 12px 10px;background:#fff;border-left:1px solid var(--border);box-shadow:-10px 0 28px #17344a14;color:#304b63}
+.shell.agent-open>.workspace,.shell.agent-open>.score-overview,.shell.agent-open>.arrangement{margin-right:var(--agent-width);min-width:0}
+.shell.agent-open>.topbar{z-index:32}
+#agentToggle[aria-pressed="true"],#agentMenu[aria-pressed="true"]{background:#e7f1fa;color:#1d5d90}
+.agent-heading{margin-bottom:4px}
+.agent-heading h2{font-size:15px}
+.agent-status{margin:0 0 8px;font-size:12px;line-height:1.65;color:#4d6780;white-space:pre-wrap}
+.agent-model-row{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.agent-model-row label,.agent-input-label{font-size:11px;color:#6c8195;flex:none}
+.agent-input-label{display:block;margin-bottom:4px}
+.agent-model-row select{flex:1;min-width:0;height:32px;border:1px solid #cbd7e3;border-radius:6px;background:#fff;color:#304b63;padding:0 6px}
+.agent-model-row button,.agent-actions button{border:1px solid #c9d9e6;border-radius:6px;background:#f5f9fc;color:#315e83;padding:6px 8px;font-size:12px}
+#agentSend{background:#225e95;border-color:#225e95;color:#fff}
+.agent-log{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:8px;background:#f6f9fc;border:1px solid #e1eaf2;border-radius:8px}
+.agent-msg{max-width:100%;padding:8px 10px;border-radius:8px;font-size:13px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
+.agent-msg.user{align-self:flex-end;width:fit-content;max-width:92%;background:#e5f1fb;color:#163e5e}
+.agent-msg.assistant{align-self:stretch;background:#fff;border:1px solid #e1eaf2;color:#24384c}
+.agent-msg.pending{border-style:dashed}
+.agent-empty{margin:0;font-size:12px;line-height:1.7;color:#6a8094;white-space:pre-wrap}
+.agent-form{display:flex;flex-direction:column;margin-top:8px}
+.agent-form textarea{width:100%;resize:vertical;min-height:68px;max-height:160px;border:1px solid #cbd7e3;border-radius:8px;padding:8px;font:inherit;color:#24384c}
+.agent-form textarea:focus-visible{outline:2px solid #5293cc;outline-offset:2px}
+.agent-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}
+.agent-actions #agentClear{margin-right:auto}
+@media screen and (max-width:760px){
+ .agent-panel{top:auto;left:0;width:auto;height:min(62dvh,520px);border-left:0;border-top:1px solid var(--border);border-radius:12px 12px 0 0;box-shadow:0 -10px 30px #17344a28;padding-bottom:max(10px,env(safe-area-inset-bottom))}
+ .shell.agent-open>.workspace,.shell.agent-open>.score-overview,.shell.agent-open>.arrangement{margin-right:0}
+}
+@media print{
+ .agent-panel{display:none!important}
+ .shell.agent-open>.workspace,.shell.agent-open>.score-overview,.shell.agent-open>.arrangement{margin-right:0!important}
+}
