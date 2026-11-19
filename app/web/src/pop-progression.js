@@ -51,7 +51,39 @@
   else quality='';
   return {roman:text,degree:degree>=0?degree:0,quality};
  }
+ function specialRomanToSymbol(roman,fifths,mode='major'){
+  if(roman==='bVII'){
+   const pc=(tonicPc(fifths)+10)%12;
+   const {step,alter}=P.fromMidi(60+pc,fifths);
+   return step+(alter===1?'♯':alter===-1?'♭':'');
+  }
+  if(roman==='iv'&&mode==='major'){
+   const pc=(tonicPc(fifths)+MAJOR_DEG[3])%12;
+   const {step,alter}=P.fromMidi(60+pc,fifths);
+   return step+(alter===1?'♯':alter===-1?'♭':'')+'m';
+  }
+  if(roman==='V/vi'){
+   const viPc=(tonicPc(fifths)+(mode==='minor'?MINOR_DEG[5]:MAJOR_DEG[5]))%12;
+   const dom=(viPc+7)%12;
+   const {step,alter}=P.fromMidi(60+dom,fifths);
+   return step+(alter===1?'♯':alter===-1?'♭':'');
+  }
+  return null;
+ }
+ function buildChordPad(fifths,mode='major'){
+  const diatonic=[['I',''],['ii','m'],['iii','m'],['IV',''],['V',''],['vi','m'],['vii°','dim']];
+  const pad=diatonic.map(([roman])=>({
+   roman,symbol:romanToSymbol(roman,fifths,mode),label:roman,borrowed:false
+  }));
+  for(const roman of ['bVII','iv','V/vi']){
+   const symbol=specialRomanToSymbol(roman,fifths,mode);
+   if(symbol)pad.push({roman,symbol,label:roman.replace('V/vi','V/Ⅵ'),borrowed:true});
+  }
+  return pad;
+ }
  function romanToSymbol(roman,fifths,mode='major'){
+  const special=specialRomanToSymbol(roman,fifths,mode);
+  if(special)return special;
   const parsed=parseRoman(roman);
   if(!parsed)return 'C';
   const scale=mode==='minor'?MINOR_DEG:MAJOR_DEG;
@@ -248,7 +280,8 @@
  }
 
  return {
-  STORAGE_KEY,TEMPLATES,TEMPLATE_KEYS,loadStore,saveStore,parseRoman,romanToSymbol,symbolToRoman,rankNext,
-  progressionForTemplate,sampleProgression,learnFromPart,applyToPart,applyDocument,voicingPitches
+  STORAGE_KEY,TEMPLATES,TEMPLATE_KEYS,loadStore,saveStore,parseRoman,specialRomanToSymbol,buildChordPad,
+  romanToSymbol,symbolToRoman,rankNext,progressionForTemplate,sampleProgression,learnFromPart,applyToPart,
+  applyDocument,voicingPitches,writeSlot
  };
 });

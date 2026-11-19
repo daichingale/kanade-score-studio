@@ -601,6 +601,30 @@
 .pop-progression-dialog label{display:flex;flex-direction:column;gap:4px;margin:.65rem 0;font-weight:600;font-size:13px}
 .pop-progression-range label{flex-direction:row;align-items:center;gap:8px}
 .pop-progression-dialog .panel-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+.chord-composer-dialog{width:min(520px,calc(100vw - 16px));max-height:min(92dvh,720px);overflow:auto;padding-bottom:env(safe-area-inset-bottom)}
+.chord-composer-presets{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.chord-composer-presets button{min-height:40px;padding:6px 12px;font-size:13px;touch-action:manipulation}
+.chord-composer-controls{display:flex;flex-wrap:wrap;gap:10px;margin:8px 0}
+.chord-composer-controls label{font-size:13px;display:flex;align-items:center;gap:6px}
+.chord-composer-pad{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0}
+.chord-composer-pad-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:56px;padding:8px 4px;border-radius:12px;border:1px solid #b3cadb;background:#fff;color:#163a5e;font-weight:600;touch-action:manipulation}
+.chord-composer-pad-btn.is-suggested{border-color:#6ba8e8;background:linear-gradient(180deg,#f3f9ff,#e6f1fb);box-shadow:0 0 0 1px #9fc8ef inset}
+.chord-composer-pad-btn.is-borrowed{font-weight:500;opacity:.92}
+.chord-composer-pad-roman{font-size:13px}
+.chord-composer-pad-symbol{font-size:11px;font-weight:500;color:#4d6c89}
+.chord-composer-timeline-wrap{margin:8px 0 12px}
+.chord-composer-timeline-actions{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+.chord-composer-timeline{display:flex;gap:8px;overflow-x:auto;padding:4px 0 8px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
+.chord-composer-chip{flex:0 0 auto;display:grid;gap:2px;min-width:72px;padding:6px;border-radius:10px;border:1px solid #c5d7e8;background:#f8fbfe;scroll-snap-align:start}
+.chord-composer-chip-body{min-height:40px;border-radius:8px;border:1px solid #a8bfd4;background:#fff;font-size:15px;font-weight:700;touch-action:manipulation}
+.chord-composer-chip-meta{font-size:10px;text-align:center;color:#5b728a}
+.chord-composer-chip-del{min-height:28px;font-size:16px;line-height:1;opacity:.7}
+.chord-composer-output label{display:flex;flex-direction:column;gap:4px;margin:.5rem 0;font-size:13px}
+@media(max-width:760px){
+ .chord-composer-dialog{width:calc(100vw - 10px);max-height:calc(100dvh - 12px);margin:6px auto}
+ .chord-composer-pad{grid-template-columns:repeat(3,minmax(0,1fr))}
+ .chord-composer-pad-btn{min-height:52px}
+}
 #performanceChordNotes{display:block;margin:8px 0;min-height:1.35em;font-size:13px}
 .performance-status{display:block;min-height:1.4em;margin-top:8px;font-size:13px}
 .performance-status[data-error]{color:#a33044}
