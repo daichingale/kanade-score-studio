@@ -41,8 +41,10 @@
   <script defer src="src/viewport.js"></script>
   <script defer src="src/agent-arrange.js"></script>
   <script defer src="src/agent-tools.js"></script>
+  <script defer src="src/pop-progression.js"></script>
   <script defer src="src/agent.js"></script>
   <script defer src="src/agent-ui.js"></script>
+  <script defer src="src/pop-progression-ui.js"></script>
   <script defer src="src/verovio-mei.js"></script>
   <script defer src="src/verovio-view.js"></script>
   <script defer src="src/app.js"></script>
@@ -55,7 +57,7 @@
       <div class="brand"><span class="brand-mark">𝄞</span><div><strong>kanade<span class="brand-dot">.</span></strong></div></div>
       <nav id="appMenubar" class="app-menubar" aria-label="メニューバー">
         <details class="app-menu" id="fileMenu"><summary>ファイル</summary><div class="menu-panel"><button id="newBtn" class="ghost" title="新規作成">新規</button><button id="openBtn" class="ghost" title="Kanade、MusicXML、MXLを開く">楽譜を開く</button><button id="mediaOpen" type="button" class="ghost">動画・音声を開く</button><button id="demoBtn" class="ghost" title="入力例を表示">サンプル譜</button><div class="menu-divider"></div><div class="menuwrap"><button id="exportBtn" class="ghost" aria-expanded="false">書き出し ▾</button><div id="exportMenu" class="export-menu hidden"><button data-export="wav">WAV 音声 (.wav)</button><button data-export="mp3">MP3 音声 (.mp3)</button><button data-export="midi">MIDI (.mid)</button><button data-export="musicxml">MusicXML (.musicxml)</button><button data-export="svg">SVG 画像 (.svg)</button><button data-export="ksl">KSL テキスト (.ksl) <small>試験的</small></button><button data-export="print">印刷プレビュー</button><button data-export="pdf">PDF出力</button></div></div></div></details>
-        <details class="app-menu" id="editMenu"><summary>編集</summary><div class="menu-panel"><button id="selectMeasure" title="現在の小節全体を選択">小節選択</button><button id="selectSingle">音符・休符を1つ選択</button><button id="selectToStart">現在の音符から曲頭まで</button><button id="selectToEnd">現在の音符から曲末まで</button><div class="menu-divider"></div><button id="deleteNoteMenu">音符・休符を消去</button><button id="copySelection" title="コピー（Ctrl+C）">コピー</button><button id="cutSelection" title="切り取り（Ctrl+X）">切り取り</button><button id="pasteSelection" title="カーソル位置から貼り付け（Ctrl+V）" disabled>貼り付け</button><div class="menu-divider"></div><button id="addMeasure">＋ 小節を追加</button><button id="insertMeasureBefore" title="選択中の小節の前に空小節を挿入">手前に挿入</button><button id="duplicateMeasures" title="選択範囲がまたがる小節を複製">小節複製</button><button id="removeMeasure" title="選択範囲がまたがる小節を丸ごと削除（Ctrl+Zで戻す）">小節削除</button></div></details>
+        <details class="app-menu" id="editMenu"><summary>編集</summary><div class="menu-panel"><button id="popProgressionOpen" type="button">ポップ進行を入力</button><button id="selectMeasure" title="現在の小節全体を選択">小節選択</button><button id="selectSingle">音符・休符を1つ選択</button><button id="selectToStart">現在の音符から曲頭まで</button><button id="selectToEnd">現在の音符から曲末まで</button><div class="menu-divider"></div><button id="deleteNoteMenu">音符・休符を消去</button><button id="copySelection" title="コピー（Ctrl+C）">コピー</button><button id="cutSelection" title="切り取り（Ctrl+X）">切り取り</button><button id="pasteSelection" title="カーソル位置から貼り付け（Ctrl+V）" disabled>貼り付け</button><div class="menu-divider"></div><button id="addMeasure">＋ 小節を追加</button><button id="insertMeasureBefore" title="選択中の小節の前に空小節を挿入">手前に挿入</button><button id="duplicateMeasures" title="選択範囲がまたがる小節を複製">小節複製</button><button id="removeMeasure" title="選択範囲がまたがる小節を丸ごと削除（Ctrl+Zで戻す）">小節削除</button></div></details>
         <button class="menu-trigger" data-panel="scoreSettings">楽譜</button>
         <button class="menu-trigger" data-transport-action="mix">再生</button><button class="menu-trigger" data-panel="collabPanel">共同編集</button><button class="menu-trigger" id="agentToggle" type="button" aria-controls="agentPanel" aria-expanded="false" title="吹奏楽の相談（Ctrl+J）">相談</button>
         <details class="app-menu" id="viewMenu"><summary>表示</summary><div class="menu-panel"><button id="menuPianoRoll" type="button">ピアノロール</button><button id="menuOverview">全体譜・自動整形</button><button id="verovioToggle" type="button" data-verovio-toggle aria-pressed="true">刻譜で表示（Verovio）</button><button id="menuPublication">作品情報・表紙</button><button id="menuPrintPreview">印刷プレビュー</button><button data-view-action="in">拡大（Ctrl＋＋）</button><button data-view-action="out">縮小（Ctrl＋−）</button><button data-view-action="actual">100%（Ctrl＋0）</button><button data-view-action="fit">幅に合わせる</button><button data-hand-tool aria-pressed="false">手のひらツール（H）</button><div class="menu-divider"></div><button data-toggle-inspector>音符の詳細を表示／閉じる</button><button id="installApp" hidden>アプリとしてインストール</button><button id="agentMenu" type="button">吹奏楽AIに相談（Ctrl＋J）</button><button data-panel="helpPanel">操作ガイド・アプリ情報</button></div></details>
@@ -596,7 +598,8 @@
     </div>
     <form id="performanceChord" hidden>
       <div class="performance-row"><label>ルート <select id="performanceRoot"></select></label><label>種類 <select id="performanceQuality"></select></label><label>オクターブ <select id="performanceChordOctave"></select></label></div>
-      <label class="performance-symbol">コード名 <input id="performanceSymbol" value="C" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Cmaj7、B♭m7、D/F♯"></label>
+      <label class="performance-symbol">コード名 <input id="performanceSymbol" value="C" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Cmaj7、B♭m7、D/F♯" aria-describedby="chordAssistRow"></label>
+      <div id="chordAssistRow" class="chord-assist" hidden><span class="chord-assist-label">次の候補</span><div id="chordAssistChips" role="listbox" aria-label="次のコード候補"></div></div>
       <output id="performanceChordNotes" aria-live="polite"></output><div class="performance-row"><button id="performanceInsertChord" type="submit" class="solid">和音を入力</button><button id="performanceWriteSymbol" type="button">コード名を記譜</button></div>
     </form>
     <output id="performanceStatus" class="performance-status" role="status"></output>
@@ -604,7 +607,9 @@
   <dialog class="settings-panel" id="scoreSettings" aria-labelledby="scoreSettingsHeading"><div class="panel-heading"><h2 id="scoreSettingsHeading">楽譜の設定</h2><button data-close-panel aria-label="楽譜の設定を閉じる">×</button></div><label class="instrument-language" for="instrumentLanguage">楽器名の表示 <select id="instrumentLanguage"><option value="en">英語</option><option value="ja">日本語</option></select></label><div class="overwrite-setting">
       <label for="overwriteMode"><input type="checkbox" id="overwriteMode" aria-describedby="overwriteHint"> 上書きモード</label>
       <p id="overwriteHint" class="panel-hint">入力した音価の範囲にある音符・休符を置き換えます。スマホでは音符を選び、音価を決めてから「＋音符」または「＋休符」を押します。</p>
-    </div><div class="settings-grid"><div class="controlblock"><label for="clefSelect">音部記号</label><select id="clefSelect"><option value="treble">ト音記号</option><option value="bass">ヘ音記号</option><option value="alto">ハ音・アルト</option><option value="tenor">ハ音・テナー</option><option value="percussion">ニュートラル（打楽器）</option></select></div><div class="controlblock"><label for="staffLines">譜線</label><select id="staffLines"><option value="5">5線譜</option><option value="1">1線譜</option><option value="2">2線譜</option><option value="3">3線譜</option><option value="4">4線譜</option></select></div><div class="controlblock"><label for="transposition">記譜音 → 実音</label><select id="transposition"></select></div><div class="controlblock"><label for="notehead">符頭</label><select id="notehead"><option value="normal">通常</option><option value="cross">×</option></select></div><div class="controlblock"><label for="partName">パート名</label><input id="partName" maxlength="120" aria-label="パート名"></div><div class="controlblock"><label for="composerInput">作曲者</label><input id="composerInput" maxlength="200" placeholder="作曲者を入力"></div></div></dialog>
+    </div>
+    <label class="panel-hint" for="chordAssistToggle"><input type="checkbox" id="chordAssistToggle" checked> コード入力の次候補を表示（モデル予測・Tabで採用）</label>
+    <div class="settings-grid"><div class="controlblock"><label for="clefSelect">音部記号</label><select id="clefSelect"><option value="treble">ト音記号</option><option value="bass">ヘ音記号</option><option value="alto">ハ音・アルト</option><option value="tenor">ハ音・テナー</option><option value="percussion">ニュートラル（打楽器）</option></select></div><div class="controlblock"><label for="staffLines">譜線</label><select id="staffLines"><option value="5">5線譜</option><option value="1">1線譜</option><option value="2">2線譜</option><option value="3">3線譜</option><option value="4">4線譜</option></select></div><div class="controlblock"><label for="transposition">記譜音 → 実音</label><select id="transposition"></select></div><div class="controlblock"><label for="notehead">符頭</label><select id="notehead"><option value="normal">通常</option><option value="cross">×</option></select></div><div class="controlblock"><label for="partName">パート名</label><input id="partName" maxlength="120" aria-label="パート名"></div><div class="controlblock"><label for="composerInput">作曲者</label><input id="composerInput" maxlength="200" placeholder="作曲者を入力"></div></div></dialog>
   <dialog class="settings-panel mix-dialog" id="mixDialog" aria-labelledby="mixHeading">
     <div class="panel-heading"><h2 id="mixHeading">再生ミキサー</h2><button id="mixClose" type="button" aria-label="ミキサーを閉じる">×</button></div>
     <div class="mix-transport" role="group" aria-label="再生操作">
@@ -717,6 +722,21 @@
         <button id="tupletStart" type="submit">設定を保存</button>
       </div>
     </form>
+  </dialog>
+  <dialog id="popProgressionDialog" class="settings-panel pop-progression-dialog" aria-labelledby="popProgressionHeading">
+    <div class="panel-heading"><h2 id="popProgressionHeading">ポップ進行を入力</h2><form method="dialog"><button aria-label="閉じる">×</button></form></div>
+    <p id="popProgressionKey" class="panel-hint"></p>
+    <label>パート <select id="popProgressionPart"></select></label>
+    <div class="pop-progression-range">
+      <label>小節 <input id="popProgressionFrom" type="number" min="1" value="1"> 〜 <input id="popProgressionTo" type="number" min="1" value="4"></label>
+    </div>
+    <label>進行 <select id="popProgressionTemplate"></select></label>
+    <label>コードの切り替え <select id="popProgressionGrid"><option value="bar">1小節ごと</option><option value="half">2分の1小節ごと</option></select></label>
+    <label>音価（アルペジオ時） <select id="popProgressionDen"><option value="1">全音符</option><option value="2">二分</option><option value="4" selected>四分</option><option value="8">八分</option><option value="16">十六分</option></select></label>
+    <label>ボイシング <select id="popProgressionVoicing"><option value="block">和音（ブロック）</option><option value="root5">根音＋5度</option><option value="arpeggio">アルペジオ（基本）</option></select></label>
+    <label>オクターブ <select id="popProgressionOctave"><option value="3">3</option><option value="4" selected>4</option><option value="5">5</option></select></label>
+    <label><input type="checkbox" id="popProgressionLearn"> 書き込み後、コード記号から学習を更新（この端末のみ）</label>
+    <div class="panel-actions"><form method="dialog"><button type="submit">キャンセル</button></form><button type="button" id="popProgressionApply" class="solid">入力</button></div>
   </dialog>
   <dialog id="commandPalette" class="command-palette" aria-labelledby="commandHeading">
     <div class="panel-heading"><h2 id="commandHeading">コマンドパレット</h2><button id="commandClose" aria-label="コマンドパレットを閉じる">×</button></div>

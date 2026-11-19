@@ -594,6 +594,13 @@
 .performance-piano button[data-playing]{background:#7cb9f0;color:#102a43}
 .performance-symbol{display:grid;gap:3px}
 .performance-symbol input{width:100%}
+.chord-assist{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 8px;font-size:12px;color:#5a6570}
+.chord-assist-label{font-size:11px;opacity:.85}
+.chord-assist button{min-height:32px;padding:4px 10px;border:1px dashed #9db4c8;background:#f5f8fb;color:#2d4f6e;font-size:12px;border-radius:999px;touch-action:manipulation}
+.chord-assist button:focus-visible,.chord-assist button:hover{background:#e8f0f8}
+.pop-progression-dialog label{display:flex;flex-direction:column;gap:4px;margin:.65rem 0;font-weight:600;font-size:13px}
+.pop-progression-range label{flex-direction:row;align-items:center;gap:8px}
+.pop-progression-dialog .panel-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
 #performanceChordNotes{display:block;margin:8px 0;min-height:1.35em;font-size:13px}
 .performance-status{display:block;min-height:1.4em;margin-top:8px;font-size:13px}
 .performance-status[data-error]{color:#a33044}

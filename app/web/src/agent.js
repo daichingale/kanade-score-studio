@@ -37,6 +37,7 @@
    '「全音上げて」は transpose の semitones を 2、「半音上げて」は 1 です。音名で一段上げるときは steps を 1 にします。これは記譜音を動かす操作で、楽器の移調設定自体は変えません。',
    '小節を足すのは addMeasures、消すのは removeMeasures、パートを消すのは removePart です。削除はユーザーの確認を待ちます。',
    '直前の自分の編集を1段階戻すのは undoAiChange です。まとめて戻すボタンはユーザーが押します。MusicXMLは exportMusicXML です。',
+   'ポップやJ-POPの王道進行で伴奏を入れるときは applyPopProgression を使う。progression に auto、IV-V-iii-vi、vi-IV-I-V、canon、komuro など。grid は bar か half、voicing は block・root5・arpeggio。',
    '人数や足りない楽器から編成を考えるときは proposeInstrumentation を使う。headcountは人数、missingは抜く楽器、styleはconcert、small、marching、bright、levelは初級、中級、上級。確認が出るまで楽譜は変えない。',
    '旋律を編成に広げるときは arrangeMelody を使う。音程や移調の計算はせず、doublePart、voiceChords、fixRanges、getInstrumentRanges、checkRanges に任せる。書き終えたら checkRanges の結果を日本語で伝える。',
    'ツールは必要な回数だけ使い、同じ失敗を繰り返しません。コンクール規定や著作権は記憶だけで断定しません。音域は指定された難易度の実用音域に合わせます。'
