@@ -269,6 +269,8 @@ ondes|オンド・マルトノ|Ondes Martenot
  };
  const templates=[
   ['wind','吹奏楽','大編成',lists.wind],['marching','マーチング','大編成',lists.marching],
+  ['schoolWind','学校吹奏楽（25人）','大編成','flute flute oboe bassoon clarinet clarinet clarinet clarinet clarinet alto alto tenor trumpet trumpet trumpet horn horn trombone trombone euphonium tuba tuba snare orchestralBassDrum suspendedCymbal'],
+  ['schoolMarching','学校マーチング','大編成','piccolo flute flute clarinet clarinet clarinet clarinet alto alto tenor trumpet trumpet trumpet trumpet mellophone mellophone baritoneHorn baritoneHorn tuba tuba snare tenors basses cymbals glockenspiel'],
   ['smallWind','小編成吹奏楽','大編成','flute oboe clarinet clarinet alto tenor trumpet trumpet horn trombone euphonium tuba snare orchestralBassDrum'],
   ['windSymphony','シンフォニック・ウィンド','大編成','piccolo flute flute oboe englishHorn bassoon ebClarinet clarinet clarinet clarinet bassClarinet alto alto tenor baritone trumpet trumpet trumpet horn horn horn trombone trombone bassTrombone euphonium tuba contrabass timpani marimba snare orchestralBassDrum suspendedCymbal'],
   ['marchBattery','マーチング・バッテリー','大編成','snare snare tenors basses cymbals'],
