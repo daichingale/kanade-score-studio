@@ -34,7 +34,7 @@ JavaScript・HTMLは保存後に自動再読み込みし、楽譜、選択位置
 
 手動で開発する場合は、このフォルダーで `npm run dev`、テストは `npm test`。
 
-公開デモ（GitHub Pages）: **https://daichingale.github.io/kanade-score-studio/** — 楽譜編集と Verovio 刻譜はブラウザだけで動きます。吹奏楽AIは同じPCで `OLLAMA_ORIGINS="https://daichingale.github.io" ollama serve` のように起動した Ollama に直接つなぎます。手元では `npm run dev` のプロキシ経由が従来どおりです。
+公開デモ（GitHub Pages）: **https://daichingale.github.io/kanade-score-studio/** — 楽譜編集と Verovio 刻譜はブラウザだけで動きます（`main` への push で自動デプロイ）。吹奏楽AIは同じPCで `OLLAMA_ORIGINS="https://daichingale.github.io" ollama serve` のように起動した Ollama に直接つなぎます。手元では `npm run dev` のプロキシ経由が従来どおりです。
 
 ## スマホで同じWi-Fiから試す（任意）
 
