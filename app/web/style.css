@@ -903,3 +903,5 @@
  .agent-panel{display:none!important}
  .shell.agent-open>.workspace,.shell.agent-open>.score-overview,.shell.agent-open>.arrangement{margin-right:0!important}
 }
+
+.verovio-pages{display:flex;flex-direction:column;gap:18px}.verovio-pages svg{width:100%;height:auto;background:#fff;max-width:100%}#scoreHost[data-renderer="verovio"] [data-event-id]{cursor:pointer}#scoreHost[data-renderer="verovio"].placing{cursor:crosshair}[data-verovio-toggle][data-busy="1"]{opacity:.7}

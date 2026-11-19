@@ -1,6 +1,8 @@
-/* Network-first shell. Never cache shared scores, invitation responses, dev routes, or the local Ollama proxy. */
-const CACHE='kanade-shell-v20';
-self.addEventListener('install',event=>{self.skipWaiting();});
+/* Network-first shell. Never cache shared scores, invitation responses, dev routes, or the local Ollama proxy.
+   The unmodified Verovio toolkit is precached so engraved scores stay available offline. */
+const CACHE='kanade-shell-v21';
+const PRECACHE=['/vendor/verovio/verovio-toolkit-wasm.js','/vendor/verovio/LICENSE','/vendor/verovio/NOTICE.txt','/src/verovio-mei.js','/src/verovio-view.js','/src/verovio-worker.js'];
+self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(PRECACHE)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',event=>event.waitUntil((async()=>{for(const key of await caches.keys())if(key.startsWith('kanade-shell-')&&key!==CACHE)await caches.delete(key);await self.clients.claim();})()));
 self.addEventListener('fetch',event=>{
  const url=new URL(event.request.url);if(event.request.method!=='GET'||url.origin!==self.location.origin||url.pathname.startsWith('/api/')||url.pathname.startsWith('/__dev/')||url.pathname.startsWith('/__agent/'))return;

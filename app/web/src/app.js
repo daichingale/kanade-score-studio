@@ -1444,8 +1444,28 @@
       edition:{...partEdition,subtitle:[edition.subtitle,part.printName||part.instrument].filter(Boolean).join(' · ')}})).join('');
     return {html,paper:partEdition.paper};
   }
+  function previewParts(){
+    const parts=engravingParts();
+    const target=$('printPreviewDialog').open?$('previewPrintTarget').value:'score';
+    if(target==='score'||target==='parts')return target==='parts'?parts.map(part=>[part]):[parts];
+    return [[parts[Number(target)]||parts[0]]];
+  }
   function refreshPrintPreview(){
-    const host=$('printPreviewPages'),{html,paper}=printDocument('proof');
+    const host=$('printPreviewPages');
+    if(window.KanadeVerovio?.isEnabled()){
+      host.textContent='刻譜を準備しています';
+      $('printPreviewInfo').textContent='Verovioでページを刻譜しています';
+      Promise.all(previewParts().map(parts=>window.KanadeVerovio.exportMarkup(parts))).then(results=>{
+        if(!window.KanadeVerovio.isEnabled()||!$('printPreviewDialog').open)return;
+        host.innerHTML=results.flatMap(result=>result.svgs).join('');
+        host.dataset.paper='verovio';
+        const pages=results.reduce((sum,result)=>sum+result.pages,0);
+        const ms=results.reduce((sum,result)=>sum+result.ms,0);
+        $('printPreviewInfo').textContent=`刻譜 · ${pages}ページ · ${ms}ms`;
+      }).catch(error=>{host.textContent=error.message||'刻譜を用意できませんでした';});
+      return;
+    }
+    const {html,paper}=printDocument('proof');
     host.innerHTML=html;host.dataset.paper=paper;
     $('printPreviewInfo').textContent=paper.toUpperCase()+' · '+host.childElementCount+'ページ';
   }
@@ -1694,7 +1714,13 @@
     const measure=mobile.matches?playbackDisplay??caret.mi:null;
     const previousVoice=host.dataset.voiceMeasure||'';
     host.dataset.voiceMeasure=voiceScope?String(voiceScope.mi):'';
-    if(previousVoice!==host.dataset.voiceMeasure||layout!==renderedLayout||measure!==renderedMeasure||!renderedScore||(measure!==null&&renderedScore!==score)){
+    const useVerovio=window.KanadeVerovio?.isEnabled()&&!voiceScope;
+    if(useVerovio){
+      if(!host.querySelector('.verovio-pages')&&!host.querySelector('svg'))R.mount(host,score,selection,layout,measure);
+      window.KanadeVerovio.sync(host,score,selection);
+      renderedLayout=layout;renderedMeasure=measure;
+    }else if(previousVoice!==host.dataset.voiceMeasure||layout!==renderedLayout||measure!==renderedMeasure||!renderedScore||(measure!==null&&renderedScore!==score)||host.dataset.renderer==='verovio'){
+      if(host.dataset.renderer==='verovio')delete host.dataset.renderer;
       R.mount(host,score,selection,layout,measure);
       if(measure!==renderedMeasure)$('scoreScroll').scrollTop=0;
       renderedLayout=layout;renderedMeasure=measure;
@@ -2007,6 +2033,7 @@
       else {const count=window.prompt('追加する小節数','4');if(count!==null)addMobileMeasures(Number(count));}
     },''],
     ['全体譜・自動整形','engraving overview',openOverview,''],
+    ['刻譜表示を切り替える','verovio engraving bravura',toggleVerovio,''],
     ['共同編集・QR招待','collaboration invite',()=>window.KanadeWorkspace.openPanel('collabPanel'),''],
     ['コピー','copy kopi',()=>copySelection(),'Ctrl+C'],
     ['切り取り','cut kiritori',()=>copySelection(true),'Ctrl+X'],
@@ -2232,15 +2259,21 @@
     updateCommandSelection();
   }
   function svgCoordinates(event) {
-    const svg=$('scoreHost').querySelector('svg');if(!svg)return null;
+    const host=$('scoreHost');
+    let svg=event.target?.closest?.('svg')||host.querySelector('svg');
+    if(host.dataset.renderer==='verovio')svg=svg?.querySelector('svg.definition-scale')||host.querySelector('svg.definition-scale')||svg;
+    if(!svg)return null;
     const ctm=svg.getScreenCTM();if(!ctm)return null;
     const point=svg.createSVGPoint();point.x=event.clientX;point.y=event.clientY;
     const position=point.matrixTransform(ctm.inverse());
-    return {x:position.x,y:position.y};
+    return {x:position.x,y:position.y,svg};
   }
   function inputPosition(point) {
     if(!point)return null;
-    const hit=R.hitTest(score,point.x,point.y,den,dots,{step:previewStep,octave},viewport.layout(),{overwrite:isOverwriteEntry(),onset:point.onset,octaveShift:pointerOctaveShift});
+    const engraved=$('scoreHost').dataset.renderer==='verovio'&&window.KanadeVerovio?.hitTest;
+    const hit=engraved
+      ?window.KanadeVerovio.hitTest($('scoreHost'),point,score,den,dots,{drum:{step:previewStep,octave},octaveShift:pointerOctaveShift,overwrite:isOverwriteEntry(),onset:point.onset})
+      :R.hitTest(score,point.x,point.y,den,dots,{step:previewStep,octave},viewport.layout(),{overwrite:isOverwriteEntry(),onset:point.onset,octaveShift:pointerOctaveShift});
     const pending=nextTupletSlot();
     return hit&&pending?{...hit,mi:pending.mi,tick:pending.tick}:hit;
   }
@@ -2250,8 +2283,41 @@
     if(written)point.onset=Number(written.dataset.eventTick);
     return point;
   }
+  function syncVerovioButtons(){
+    const on=!!window.KanadeVerovio?.isEnabled();
+    for(const button of document.querySelectorAll('[data-verovio-toggle]')){
+      button.setAttribute('aria-pressed',String(on));
+      button.textContent=button.id==='verovioToggle'?(on?'従来の譜面に戻す':'刻譜で表示（Verovio）'):(on?'従来':'刻譜');
+      button.title=on?'従来の五線描画に戻す':'Verovioで刻譜する';
+    }
+  }
+  function toggleVerovio(){
+    if(!window.KanadeVerovio)return;
+    const next=!window.KanadeVerovio.isEnabled();
+    window.KanadeVerovio.setEnabled(next);
+    try{localStorage.setItem(window.KanadeVerovio.storageKey(),next?'verovio':'classic');}
+    catch(error){console.warn('Renderer setting is unavailable',error);}
+    renderedScore=null;syncVerovioButtons();render();
+  }
   function updateGhost() {
-    const host=$('scoreHost'),layer=host.querySelector('#kanade-ghost-layer');if(!layer)return;
+    const host=$('scoreHost');
+    if(host.dataset.renderer==='verovio'&&window.KanadeVerovio?.paintGhost){
+      let ghost=null;
+      if(mobile.matches&&mobileDraft&&editMode==='entry'&&!selectionRange){
+        ghost=window.KanadeVerovio.ghostAt(host,score,mobileDraft,den,dots,isOverwriteEntry());
+      }else if(!mobile.matches&&editMode==='entry'&&!selectionRange&&!rangeDirection&&!host.classList.contains('pitch-dragging')){
+        if(lastPointer)ghost=inputPosition(lastPointer);
+        else if(keyboardGhost){
+          const overwrite=isOverwriteEntry(),cursor=inputCursor(overwrite,false),cap=C.barTicks(score,cursor.mi);
+          ghost=window.KanadeVerovio.ghostAt(host,score,{mi:cursor.mi+Number(cursor.tick===cap),tick:cursor.tick%cap,step:previewStep,octave},den,dots,overwrite);
+        }
+      }
+      host.classList.toggle('placing',!!ghost);
+      if(ghost)window.KanadeVerovio.paintGhost(host,ghost,den);
+      else host.querySelectorAll('#kanade-verovio-ghost').forEach(node=>node.remove());
+      return;
+    }
+    const layer=host.querySelector('#kanade-ghost-layer');if(!layer)return;
     const dimmed=host.querySelector('[data-mobile-chord-edit]');
     if(dimmed)dimmed.removeAttribute('data-mobile-chord-edit');
     if(mobile.matches&&mobileChord){
@@ -2498,6 +2564,15 @@
       const mi=Number(target.dataset.measure),index=Number(target.dataset.eventIndex);
       const span=C.eventSpans(score,mi,false)[index],note=span?.event;
       if(note?.type!=='note')return;
+      if(host.dataset.renderer==='verovio'){
+        const head=target.querySelector('.notehead')||target;
+        let box;try{box=head.getBBox();}catch{return;}
+        if(point.x<box.x-20||point.x>box.x+box.width+20||point.y<box.y-20||point.y>box.y+box.height+20)return;
+        const space=Number(point.svg?.dataset.staffSpace||host.dataset.staffSpace)||12;
+        drag={pointer:event.pointerId,startY:point.y,clientX:event.clientX,clientY:event.clientY,mi,index,note,
+          score,steps:0,started:false,engraved:true,space,node:target};
+        return;
+      }
       const geometry=R.measureGeometry(score,mi,viewport.layout());
       const onset=geometry.notesStart+span.start/geometry.cap*geometry.usable;
       const nearPitch=note.pitches.some(pitch=>Math.abs(R.diatonicY(pitch,geometry.top,score.clef,score.staffLines||5)-point.y)<=15);
@@ -2518,7 +2593,13 @@
       }
       const numbers=drag.note.pitches.map(C.diatonicNumber);
       const min=7-Math.min(...numbers),max=69-Math.max(...numbers);
-      drag.steps=Math.max(min,Math.min(max,Math.round((drag.startY-point.y)/6)));
+      const stepSize=drag.engraved?(drag.space/2):6;
+      drag.steps=Math.max(min,Math.min(max,Math.round((drag.startY-point.y)/stepSize)));
+      if(drag.engraved){
+        if(score!==drag.score||!drag.node.isConnected){stop();updateGhost();return;}
+        drag.node.setAttribute('transform',drag.steps?`translate(0 ${-drag.steps*stepSize})`:'');
+        return;
+      }
       if(score!==drag.score){stop();updateGhost();return;}
       const span=C.eventSpans(score,drag.mi,false)[drag.index];
       const geometry=R.measureGeometry(score,drag.mi,viewport.layout());
@@ -2674,7 +2755,16 @@
       if(kind==='wav'||kind==='mp3'){exportAudio(kind);return;}
       if(kind==='midi') download(window.KanadeMIDIExport.encode(engravingParts()),baseName()+'.mid','audio/midi');
       else if(kind==='musicxml') download(Ex.musicXMLScore(engravingParts()),baseName()+'.musicxml','application/vnd.recordare.musicxml+xml;charset=utf-8');
-      else if(kind==='svg') download(R.engrave(engravingParts(),{edition:editionDocument().publication})[0],baseName()+'.svg','image/svg+xml;charset=utf-8');
+      else if(kind==='svg'){
+        if(window.KanadeVerovio?.isEnabled()){
+          window.KanadeVerovio.exportMarkup(engravingParts()).then(result=>{
+            download(result.svgs.join(''),baseName()+'.svg','image/svg+xml;charset=utf-8');
+            showToast(`刻譜SVGを書き出しました（${result.ms}ms）`);
+          }).catch(error=>showToast(error.message||'刻譜を書き出せませんでした',true));
+          return;
+        }
+        download(R.engrave(engravingParts(),{edition:editionDocument().publication})[0],baseName()+'.svg','image/svg+xml;charset=utf-8');
+      }
       else if(kind==='ksl') download(Ex.ksl(score),baseName()+'.ksl','text/plain;charset=utf-8');
       else if(kind==='print') {openPrintPreview();return;}
       else if(kind==='pdf') {printPdf();return;}
@@ -2994,6 +3084,8 @@
     $('octUp').onclick=()=>setOctave(octave+1);$('octDown').onclick=()=>setOctave(octave-1);
     $('restBtn').onclick=()=>insert('rest');$('chordBtn').onclick=()=>{chordMode=!chordMode;renderTools();};
     setupMobile();setupScoreContext();setupTuplet();setupDesktopEdit();setupPitchDrag();
+    for(const button of document.querySelectorAll('[data-verovio-toggle]'))button.onclick=toggleVerovio;
+    $('scoreHost').addEventListener('kanade-engraved',()=>{updateGhost();revealCaret();});
     $('tupletBtn').onclick=()=>attempt(toggleTuplet);
     $('tupletSettingsBtn').onclick=openTupletSettings;
     $('tieBtn').onclick=()=>attempt(toggleSelectedTie);
@@ -3246,6 +3338,8 @@
   }
   function init() {
     try {const saved=localStorage.getItem(STORAGE);if(saved){const s=JSON.parse(saved);if(!C.validateScore(s).length)loadScore(s);}}catch(e){console.warn('Autosave is unavailable',e);}
+    try{window.KanadeVerovio?.setEnabled(localStorage.getItem(window.KanadeVerovio.storageKey())!=='classic');}catch(e){console.warn('Renderer setting is unavailable',e);}
+    syncVerovioButtons();
     try{overwriteMode=localStorage.getItem(OVERWRITE_STORAGE)==='1';}catch(e){console.warn('Input settings are unavailable',e);}
     try{
       const preset=JSON.parse(localStorage.getItem(TUPLET_STORAGE));
