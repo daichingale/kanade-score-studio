@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#225e95">
   <meta name="referrer" content="no-referrer">
   <link rel="manifest" href="manifest.webmanifest">
@@ -59,7 +59,7 @@
         <button class="menu-trigger" data-transport-action="mix">再生</button><button class="menu-trigger" data-panel="collabPanel">共同編集</button><button class="menu-trigger" id="agentToggle" type="button" aria-controls="agentPanel" aria-expanded="false" title="吹奏楽の相談（Ctrl+J）">相談</button>
         <details class="app-menu" id="viewMenu"><summary>表示</summary><div class="menu-panel"><button id="menuPianoRoll" type="button">ピアノロール</button><button id="menuOverview">全体譜・自動整形</button><button id="verovioToggle" type="button" data-verovio-toggle aria-pressed="true">刻譜で表示（Verovio）</button><button id="menuPublication">作品情報・表紙</button><button id="menuPrintPreview">印刷プレビュー</button><button data-view-action="in">拡大（Ctrl＋＋）</button><button data-view-action="out">縮小（Ctrl＋−）</button><button data-view-action="actual">100%（Ctrl＋0）</button><button data-view-action="fit">幅に合わせる</button><button data-hand-tool aria-pressed="false">手のひらツール（H）</button><div class="menu-divider"></div><button data-toggle-inspector>音符の詳細を表示／閉じる</button><button id="installApp" hidden>アプリとしてインストール</button><button id="agentMenu" type="button">吹奏楽AIに相談（Ctrl＋J）</button><button data-panel="helpPanel">操作ガイド・アプリ情報</button></div></details>
       </nav>
-      <div class="quick-actions"><button id="arrangementOpen" type="button" aria-controls="arrangement" aria-expanded="false">タイムライン</button><button id="mobileMenu" type="button" aria-controls="appMenubar" aria-expanded="false">メニュー</button><button id="mobilePlay" class="mobile-play" aria-label="再生" aria-pressed="false">▶</button><button id="collabBadge" data-panel="collabPanel" hidden>共同編集</button><button id="commandBtn" class="ghost" title="操作を検索（Ctrl+K / ⌘K）" aria-haspopup="dialog" aria-controls="commandPalette">操作検索</button><button id="saveBtn" class="solid" title="プロジェクトを保存"><span aria-hidden="true">↓</span> 保存</button></div>
+      <div class="quick-actions"><button id="arrangementOpen" type="button" aria-controls="arrangement" aria-expanded="false">タイムライン</button><button id="mobileMenu" type="button" aria-controls="appMenubar" aria-expanded="false">メニュー</button><button id="agentMobile" type="button" aria-controls="agentPanel" aria-expanded="false" title="吹奏楽の相談">相談</button><button id="mobilePlay" class="mobile-play" aria-label="再生" aria-pressed="false">▶</button><button id="collabBadge" data-panel="collabPanel" hidden>共同編集</button><button id="commandBtn" class="ghost" title="操作を検索（Ctrl+K / ⌘K）" aria-haspopup="dialog" aria-controls="commandPalette">操作検索</button><button id="saveBtn" class="solid" title="プロジェクトを保存"><span aria-hidden="true">↓</span> 保存</button></div>
       <input id="importFile" type="file" accept=".json,.kanade.json,.musicxml,.xml,.mxl,application/json,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml" hidden>
     </header>
     <div class="workspace">
@@ -148,7 +148,16 @@
             <button data-mobile-action="previous" aria-label="前の音符・休符">‹</button>
             <button data-mobile-action="next" aria-label="次の音符・休符">›</button>
             <button data-mobile-action="chord" aria-pressed="false">和音</button>
-            <button data-mobile-action="collapse" aria-expanded="false" aria-controls="mobileTools">詳細</button>
+          </div>
+          <div class="mobile-duration-bar" role="group" aria-label="音価の選択">
+            <button type="button" data-mobile-den="1" aria-label="全音符">全</button>
+            <button type="button" data-mobile-den="2" aria-label="2分音符">2分</button>
+            <button type="button" data-mobile-den="4" aria-label="4分音符">4分</button>
+            <button type="button" data-mobile-den="8" aria-label="8分音符">8分</button>
+            <button type="button" data-mobile-den="16" aria-label="16分音符">16</button>
+            <button type="button" data-mobile-action="dot" aria-pressed="false">付点</button>
+            <button type="button" data-mobile-action="addRest">休符</button>
+            <button type="button" data-mobile-action="tie">タイ</button>
           </div>
           <div class="mobile-adjust mobile-quick-row" role="group" aria-label="音符の入力と調整">
             <button data-mobile-action="shorter" aria-label="音価を短く">−<small>音価</small></button>
@@ -159,12 +168,18 @@
             <button data-mobile-action="eraseNote" aria-label="選択した音符・休符を消去">消去</button>
             <button data-mobile-action="addNote" class="mobile-primary">＋音符</button>
           </div>
+          <div class="mobile-utility-bar" role="group" aria-label="よく使う操作">
+            <button type="button" id="undoMobile" data-mobile-action="undo" aria-label="元に戻す">↶ 戻す</button>
+            <button type="button" id="redoMobile" data-mobile-action="redo" aria-label="やり直す">↷ やり直す</button>
+            <button type="button" data-verovio-toggle aria-pressed="true">刻譜</button>
+            <button type="button" data-mobile-action="collapse" aria-expanded="true" aria-controls="mobileTools">詳細</button>
+          </div>
           <div id="mobileChordEditor" class="mobile-chord-editor" hidden>
             <div id="mobileChordPitches" aria-label="和音の構成音"></div>
             <button id="mobileChordAdd" data-mobile-action="chordAdd" aria-pressed="false" aria-label="五線をタップして音を追加">＋音</button>
             <button id="mobileChordRemove" data-mobile-action="chordRemove" aria-label="選んだ構成音を削除">音を削除</button>
           </div>
-          <div id="mobileTools" hidden>
+          <div id="mobileTools">
             <div class="mobile-tabs" role="group" aria-label="入力パレット">
               <button data-mobile-tab="notes" aria-pressed="true">音符</button><button data-mobile-tab="keys" aria-pressed="false">音名</button><button data-mobile-tab="marks" aria-pressed="false">記号</button><button data-mobile-tab="actions" aria-pressed="false">編集</button><button data-mobile-tab="measures" aria-pressed="false">小節</button>
             </div>

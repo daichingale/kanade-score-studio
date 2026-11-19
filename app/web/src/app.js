@@ -666,8 +666,10 @@
     button('next').disabled=!!rangeDirection&&caret.mi===score.measures.length-1&&caret.index>=C.eventSpans(score,caret.mi).length-1||addsBar&&score.measures.length>=500;
     button('next').setAttribute('aria-label',addsBar&&!rangeDirection?'次の小節を追加':'次の音符・休符');
     button('next').title=addsBar&&!rangeDirection?'次の小節を追加':'';
-    button('dot').setAttribute('aria-pressed',String(points>0));
-    button('dot').textContent=points===2?'複付点':'付点';
+    for(const dot of dock.querySelectorAll('[data-mobile-action="dot"]')){
+      dot.setAttribute('aria-pressed',String(points>0));
+      dot.textContent=points===2?'複付点':'付点';
+    }
     button('deleteNote').disabled=!!chord||!event&&!selectionRange;
     button('eraseNote').disabled=!chord&&!draft&&!event&&!selectionRange;
     button('paste').disabled=!canPasteSelection();
@@ -1582,6 +1584,7 @@
       insertBefore:insertMeasureBefore,duplicateMeasure:duplicateMeasures,removeMeasures:removeSelectedMeasures,
       deleteNote:()=>deleteSelected(),eraseNote:()=>mobileChord?toggleMobileChord():mobileDraft?clearMobileDraft():deleteSelected(),commands:openCommands,noteSymbols:()=>openSymbols('note'),directionSymbols:()=>openSymbols('direction'),selectMeasure,selectSingle,selectToStart:()=>selectToEdge(false),selectToEnd:()=>selectToEdge(true),
       copy:()=>{copySelection();renderMobile();showToast('コピーしました');},paste:pasteSelection,stem:()=>flipStem(),
+      undo:undoAction,redo:redoAction,
       settings:button=>{
         const open=$('entryBar').classList.toggle('mobile-expanded');
         button.setAttribute('aria-expanded',String(open));
@@ -1590,6 +1593,8 @@
     };
     dock.addEventListener('click',e=>{
       const button=e.target.closest('button');if(!button)return;
+      const den=button.dataset.mobileDen;
+      if(den){selectDuration(Number(den));renderMobile();updateGhost();return;}
       const {mobileAction,mobileTab,mobileArt,mobileAlter,mobilePitch,mobileDirection,mobileChordPitch}=button.dataset;
       if(mobileChordPitch&&mobileChord){
         mobileChord.active=mobileChordPitch;mobileChord.adding=false;refreshMobileChord();
@@ -1623,7 +1628,11 @@
     });
     pad.addEventListener('lostpointercapture',()=>{start=null;});
     $('scoreScroll').addEventListener('kanade-pitch-drag',event=>{
-      const pitch=mobileChord?.pitches.find(item=>item.id===mobileChord.active)||mobileDraft;
+      let pitch=mobileChord?.pitches.find(item=>item.id===mobileChord.active)||mobileDraft;
+      if(!pitch){
+        const found=getSelected();
+        if(found?.event?.type==='note'&&found.event.pitches.length===1)pitch=found.event.pitches[0];
+      }
       const {phase,dy}=event.detail;
       if(phase==='start'&&pitch){mobileDragPitch=C.diatonicNumber(pitch);event.preventDefault();}
       if(!pitch){mobileDragPitch=null;return;}
@@ -1742,6 +1751,11 @@
     $('partName').value=instrumentDisplay(score.instrument);$('staffLines').value=String(score.staffLines||5);$('transposition').value=score.transposition||'concert';$('notehead').value=score.notehead||'normal';
     $('measureCount').textContent=`${score.measures.length} 小節 · ${score.measures.reduce((n,m)=>n+m.events.length,0)} 音符/休符`;
     $('undoBtn').disabled=window.KanadeCollab?.active?!window.KanadeCollab.canUndo():!undo.length;$('redoBtn').disabled=window.KanadeCollab?.active?!window.KanadeCollab.canRedo():!redo.length;
+    if(mobile.matches){
+      $('undoMobile').disabled=$('undoBtn').disabled;
+      $('redoMobile').disabled=$('redoBtn').disabled;
+      for(const button of $('mobileEditor').querySelectorAll('[data-mobile-den]'))button.setAttribute('aria-pressed',String(Number(button.dataset.mobileDen)===den));
+    }
     $('removeMeasure').disabled=score.measures.length===1&&!score.measures[0].events.length;
     $('pasteSelection').disabled=!canPasteSelection();
     $('selectionInfo').textContent=selectionRange?`${selectionLabel()}を選択`:getSelected()?'音符・休符を選択':'カーソル位置から編集';
@@ -2305,6 +2319,8 @@
       let ghost=null;
       if(mobile.matches&&mobileDraft&&editMode==='entry'&&!selectionRange){
         ghost=window.KanadeVerovio.ghostAt(host,score,mobileDraft,den,dots,isOverwriteEntry());
+      }else if(mobile.matches&&editMode==='entry'&&!selectionRange&&!rangeDirection&&!host.classList.contains('pitch-dragging')&&lastPointer){
+        ghost=inputPosition(lastPointer);
       }else if(!mobile.matches&&editMode==='entry'&&!selectionRange&&!rangeDirection&&!host.classList.contains('pitch-dragging')){
         if(lastPointer)ghost=inputPosition(lastPointer);
         else if(keyboardGhost){
@@ -3340,6 +3356,7 @@
     try {const saved=localStorage.getItem(STORAGE);if(saved){const s=JSON.parse(saved);if(!C.validateScore(s).length)loadScore(s);}}catch(e){console.warn('Autosave is unavailable',e);}
     try{window.KanadeVerovio?.setEnabled(localStorage.getItem(window.KanadeVerovio.storageKey())!=='classic');}catch(e){console.warn('Renderer setting is unavailable',e);}
     syncVerovioButtons();
+    if(mobile.matches){showMobileTools(true);renderMobile();}
     try{overwriteMode=localStorage.getItem(OVERWRITE_STORAGE)==='1';}catch(e){console.warn('Input settings are unavailable',e);}
     try{
       const preset=JSON.parse(localStorage.getItem(TUPLET_STORAGE));

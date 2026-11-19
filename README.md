@@ -33,6 +33,16 @@ JavaScript・HTMLは保存後に自動再読み込みし、楽譜、選択位置
 `scripts/` の変更時は開発サーバーを再起動してください。
 
 手動で開発する場合は、このフォルダーで `npm run dev`、テストは `npm test`。
+
+## スマホで同じWi-Fiから試す（任意）
+
+通常は **http://127.0.0.1:5173** のみで起動します（既定）。同じLAN上のスマホから操作確認するときだけ、開発サーバーをオプトインで全インターフェースに公開できます。
+
+```bash
+HOST=0.0.0.0 npm run serve
+```
+
+または `node scripts/dev.mjs --host=0.0.0.0`。スマホのブラウザで `http://<このPCのIPアドレス>:5173` を開きます。吹奏楽AIの Ollama 転送先は従来どおり **このPC上の 127.0.0.1:11434** だけです（スマホから Ollama へ直接はつながりません）。本番の自動保存キーやオフライン用PWAと同じく、LAN試験後は通常の `npm run dev` に戻してください。
 Node.jsを直接使う場合は `node scripts/dev.mjs --open`、`node scripts/test.mjs` です。
 Windowsでは **「テストを実行.bat」** も使えます。
 

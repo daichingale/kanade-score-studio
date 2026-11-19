@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { startServer, prepareAgentChat } from '../scripts/dev.mjs';
+import { startServer, prepareAgentChat, allowedClient, allowedOrigin } from '../scripts/dev.mjs';
 
 async function fixture(t, options = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'kanade-test-'));
@@ -26,6 +26,17 @@ test('serves the app, injects development support, disables caching', async t =>
   assert.equal((await (await fetch(url+'/__dev/health')).json()).app, 'kanade-local');
   assert.match(await (await fetch(url+'/__dev/client.js')).text(), /EventSource/);
 });
+test('optionally listens on all interfaces for same-LAN phones while keeping Ollama on loopback', async t => {
+  const dev = await fixture(t, { host: '0.0.0.0' });
+  const port = dev.server.address().port;
+  assert.equal(allowedClient({ headers: { host: `127.0.0.1:${port}` } }, '0.0.0.0', port), true);
+  assert.equal(allowedClient({ headers: { host: `192.168.3.21:${port}` } }, '0.0.0.0', port), true);
+  assert.equal(allowedClient({ headers: { host: `example.com:${port}` } }, '0.0.0.0', port), false);
+  assert.equal(allowedOrigin(`http://192.168.3.21:${port}`, '0.0.0.0', port, `192.168.3.21:${port}`), true);
+  assert.equal(allowedOrigin('http://evil.test', '0.0.0.0', port, `192.168.3.21:${port}`), false);
+  assert.equal((await fetch(dev.url)).status, 200);
+});
+
 test('does not expose project metadata or accept cross-origin writes', async t => {
   const { url } = await fixture(t);
   for (const name of ['/.git/config', '/tests/x.js', '/%2e%2e%5csecret', '/missing']) {

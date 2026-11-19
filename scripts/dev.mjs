@@ -23,6 +23,29 @@ export function loopbackOrigin(origin) {
   return parsed.origin;
 }
 
+function isLanHost(hostname) {
+  return /^(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)$/.test(hostname);
+}
+
+export function allowedClient(req, listenHost, port) {
+  const header = req.headers.host;
+  if (!header) return false;
+  const colon = header.lastIndexOf(':');
+  const hostname = colon === -1 ? header : header.slice(0, colon);
+  const requestPort = colon === -1 ? port : Number(header.slice(colon + 1));
+  if (requestPort !== port) return false;
+  if (['127.0.0.1', 'localhost', '[::1]', '::1'].includes(hostname)) return true;
+  if (listenHost === '0.0.0.0' && isLanHost(hostname)) return true;
+  return false;
+}
+
+export function allowedOrigin(origin, listenHost, port, hostHeader) {
+  if (!origin) return true;
+  const allowed = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
+  if (listenHost === '0.0.0.0' && hostHeader) allowed.add(`http://${hostHeader}`);
+  return allowed.has(origin);
+}
+
 function agentError(status, error) {
   const failure = new Error(error);
   failure.status = status;
@@ -185,8 +208,11 @@ async function fingerprint(root) {
   return result;
 }
 
-export async function startServer({ root = defaultRoot, port = 5173, interval = 400, ollamaOrigin = DEFAULT_OLLAMA } = {}) {
+export async function startServer({ root = defaultRoot, port = 5173, interval = 400, ollamaOrigin = DEFAULT_OLLAMA,
+  host = process.env.KANADE_HOST || process.env.HOST || '127.0.0.1' } = {}) {
   ollamaOrigin = loopbackOrigin(ollamaOrigin);
+  if (!['127.0.0.1', '0.0.0.0', 'localhost'].includes(host)) throw new Error('Development host must be 127.0.0.1, localhost, or 0.0.0.0');
+  host = host === 'localhost' ? '127.0.0.1' : host;
   root = await realpath(root);
   const projectId = createHash('sha256').update(root).digest('hex');
   const instanceId = randomUUID();
@@ -194,14 +220,13 @@ export async function startServer({ root = defaultRoot, port = 5173, interval = 
   let files = await fingerprint(root), version = 0, busy = false;
   const broadcast = data => { for (const client of clients) client.write(`data: ${JSON.stringify(data)}\n\n`); };
   const server = http.createServer(async (req, res) => {
-    // Only loopback hosts and same-origin browser requests may use this local server.
-    const ownHost = `127.0.0.1:${server.address().port}`;
-    if (![ownHost, `localhost:${server.address().port}`].includes(req.headers.host) ||
-        (req.headers.origin && ![`http://${ownHost}`, `http://localhost:${server.address().port}`].includes(req.headers.origin))) {
+    const listenPort = server.address()?.port ?? port;
+    if (!allowedClient(req, host, listenPort) || !allowedOrigin(req.headers.origin, host, listenPort, req.headers.host)) {
       res.writeHead(403); res.end('Forbidden'); return;
     }
     let requestUrl;
-    try { requestUrl = new URL(req.url, `http://${ownHost}`); }
+    const authority = req.headers.host || `127.0.0.1:${listenPort}`;
+    try { requestUrl = new URL(req.url, `http://${authority}`); }
     catch { res.writeHead(400); res.end('Not found'); return; }
     if (requestUrl.pathname.startsWith('/__agent/')) {
       await handleAgent(req, res, requestUrl, ollamaOrigin); return;
@@ -239,7 +264,7 @@ export async function startServer({ root = defaultRoot, port = 5173, interval = 
       res.writeHead(error instanceof URIError ? 400 : 404); res.end('Not found');
     }
   });
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, resolve); });
   const poller = setInterval(async () => {
     if (busy) return;
     busy = true;
@@ -251,7 +276,9 @@ export async function startServer({ root = defaultRoot, port = 5173, interval = 
     finally { busy = false; }
   }, interval);
   const heartbeat = setInterval(() => { for (const client of clients) client.write(': keepalive\n\n'); }, 15000);
-  return { server, projectId, url: `http://127.0.0.1:${server.address().port}`, close: async () => {
+  const bound = server.address();
+  const url = host === '0.0.0.0' ? `http://127.0.0.1:${bound.port}` : `http://${bound.address === '::' ? '127.0.0.1' : bound.address}:${bound.port}`;
+  return { server, projectId, host, url, close: async () => {
     clearInterval(poller); clearInterval(heartbeat);
     for (const client of clients) client.end();
     server.closeAllConnections();
@@ -268,9 +295,11 @@ function openBrowser(url) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const url = 'http://127.0.0.1:5173';
+  const cliHost = process.argv.find(entry => entry.startsWith('--host='))?.slice(7) || process.env.KANADE_HOST || process.env.HOST;
   try {
-    const dev = await startServer();
-    console.log(`Kanade v0.2 | ${dev.url}\nSource: ${defaultRoot}\nSave source files to update the browser. Ctrl+C to stop.`);
+    const dev = await startServer(cliHost ? { host: cliHost } : {});
+    const lanNote = dev.host === '0.0.0.0' ? '\nLAN: set HOST=0.0.0.0 and open http://<このPCのIP>:5173 from your phone on the same Wi-Fi. Ollama still uses 127.0.0.1 on this PC.' : '';
+    console.log(`Kanade v0.2 | ${dev.url}\nSource: ${defaultRoot}${lanNote}\nSave source files to update the browser. Ctrl+C to stop.`);
     if (process.argv.includes('--open')) openBrowser(dev.url);
     for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => { await dev.close(); process.exit(0); });
   } catch (error) {
