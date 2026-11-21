@@ -214,9 +214,162 @@
  function phraseCard(fragment,label,style,id){
   return {id:id||C.uid(),label,style,fragment:cloneFragment(fragment)};
  }
+ const QUALITY_THRESHOLD=72;
+ const MAX_LEAP=5;
+ const MAX_RANGE=14;
+ const SING_LOW=60;
+ const SING_HIGH=74;
+ const RHYTHM_CELLS_44=[
+  [{den:4,dots:0},{den:4,dots:0},{den:4,dots:0},{den:4,dots:0}],
+  [{den:4,dots:0},{den:8,dots:0},{den:8,dots:0},{den:4,dots:0}],
+  [{den:4,dots:0},{den:4,dots:0},{den:2,dots:0}],
+  [{den:2,dots:0},{den:4,dots:0},{den:4,dots:0}]
+ ];
+ const RHYTHM_CELLS_34=[
+  [{den:4,dots:0},{den:4,dots:0},{den:4,dots:0}],
+  [{den:2,dots:0},{den:4,dots:0}],
+  [{den:4,dots:0},{den:8,dots:0},{den:8,dots:0}]
+ ];
+ const PHRASE_PROFILES=[
+  {id:'lyrical',label:'歌うフレーズ（問↔答）',style:'歌',bars:4,structure:'qa',octave:5},
+  {id:'march',label:'マーチの呼び',style:'マーチ',bars:4,structure:'qa',octave:4,baseMidi:65},
+  {id:'answer',label:'短い応答',style:'対話',bars:2,structure:'repeat',octave:4},
+  {id:'clarinet',label:'木管のなめらか',style:'木管',bars:4,structure:'qa',octave:5},
+  {id:'brass',label:'金管のくぐもり',style:'金管',bars:4,structure:'qa',octave:4,baseMidi:64}
+ ];
+ function rhythmCells(time){return time.num===3&&time.den===4?RHYTHM_CELLS_34:RHYTHM_CELLS_44;}
+ function chordToneMidi(symbol,octave,degree){
+  const tones=P.chordPitches(symbol,octave).map(C.pitchMidi);
+  return tones[Math.min(degree,tones.length-1)]??tones[0];
+ }
+ function clampSingable(midi){return Math.max(SING_LOW,Math.min(SING_HIGH,midi));}
+ function nearestChordTone(midi,symbol,octave,degrees=[0,1,2]){
+  let best=midi,dist=99;
+  for(const d of degrees){
+   const t=chordToneMidi(symbol,octave,d);
+   const delta=Math.abs(t-midi);
+   if(delta<dist){dist=delta;best=t;}
+  }
+  return best;
+ }
+ function diatonicStep(midi,dir,ctx){
+  const pitch=P.fromMidi(midi,ctx.fifths);
+  const n=C.diatonicNumber(pitch)+dir;
+  const next={...pitch,step:C.STEPS[((n%7)+7)%7],octave:Math.floor(n/7)-1};
+  return clampSingable(C.pitchMidi(next));
+ }
+ function resolveLeap(prev,next){
+  const leap=next-prev;
+  if(Math.abs(leap)<=MAX_LEAP)return next;
+  return prev+Math.sign(leap)*MAX_LEAP;
+ }
+ function cadenceMidi(symbol,octave){
+  return clampSingable(chordToneMidi(symbol,octave,0));
+ }
+ function contourTarget(bar,bars,apexBar){
+  if(bar===bars-1)return 'cadence';
+  if(bar===apexBar)return 'apex';
+  if(bar===0)return 'begin';
+  if(bar<apexBar)return 'rise';
+  return 'fall';
+ }
+ function phraseRhythmPattern(notes){
+  return notes.map(n=>`${n.event.den}.${n.event.dots||0}`).join(',');
+ }
+ function composeMusicalPhrase(ctx,rng,profile){
+  const bars=profile.bars||4;
+  const cap=C.measureTicks(ctx.time);
+  const octave=profile.octave||5;
+  const rhythm=pick(rng,rhythmCells(ctx.time));
+  const notes=[];
+  let last=clampSingable(profile.baseMidi??chordToneMidi(ctx.timeline[0]?.symbol||'C',octave,0));
+  const apexBar=Math.max(1,bars-2);
+  const motifMidi=[];
+  let pendingLeap=null;
+  for(let bar=0;bar<bars;bar++){
+   const sym=ctx.timeline[bar%ctx.timeline.length]?.symbol||'C';
+   const mode=contourTarget(bar,bars,apexBar);
+   let tickInBar=0,beat=0;
+   for(const slot of rhythm){
+    const strong=beat===0||(rhythm.length>=4&&beat===2);
+    let target;
+    if(bar===0){
+     target=strong?nearestChordTone(last,sym,octave,[0,2,1]):diatonicStep(last,rng()>.45?1:-1,ctx);
+     motifMidi.push(target);
+    }else if(bar===1){
+     target=motifMidi[beat%motifMidi.length]??last;
+    }else if(bar===2&&bars>2){
+     const seed=motifMidi[beat%motifMidi.length]??last;
+     target=diatonicStep(seed,2,ctx);
+    }else if(bar===bars-1){
+     if(beat===rhythm.length-1)target=cadenceMidi(sym,octave);
+     else if(strong)target=nearestChordTone(last,sym,octave,[2,0,1]);
+     else target=diatonicStep(last,-1,ctx);
+    }else{
+     target=strong?nearestChordTone(last,sym,octave,[0,2,1]):diatonicStep(last,mode==='fall'?-1:1,ctx);
+    }
+    if(pendingLeap!=null){
+     target=diatonicStep(last,-Math.sign(pendingLeap),ctx);
+     pendingLeap=null;
+    }else{
+     const resolved=resolveLeap(last,target);
+     if(Math.abs(resolved-last)>2)pendingLeap=resolved-last;
+     target=resolved;
+    }
+    target=clampSingable(target);
+    notes.push({offset:bar*cap+tickInBar,event:C.makeNote(P.fromMidi(target,ctx.fifths),slot.den,slot.dots||0)});
+    last=target;
+    tickInBar+=C.durationTicks(slot.den,slot.dots||0);
+    beat++;
+   }
+  }
+  return notes;
+ }
+ function scorePhrase(notes,ctx){
+  if(!notes?.length)return 0;
+  const midis=notes.map(n=>C.pitchMidi(n.event.pitches[0]));
+  let score=100;
+  const spread=Math.max(...midis)-Math.min(...midis);
+  if(spread>MAX_RANGE)score-=Math.min(35,(spread-MAX_RANGE)*5);
+  if(spread<3)score-=12;
+  let steps=0,wideLeaps=0,unresolved=0;
+  for(let i=1;i<midis.length;i++){
+   const d=midis[i]-midis[i-1];
+   if(Math.abs(d)<=2)steps++;
+   else{
+    if(Math.abs(d)>MAX_LEAP)wideLeaps++;
+    if(i<midis.length-1&&Math.abs(d)>2){
+     const stepBack=midis[i+1]-midis[i];
+     if(Math.sign(stepBack)===Math.sign(d))unresolved++;
+    }
+   }
+  }
+  if(steps/Math.max(1,midis.length-1)<.55)score-=22;
+  if(wideLeaps)score-=wideLeaps*18;
+  if(unresolved)score-=unresolved*16;
+  const cap=C.measureTicks(ctx.time);
+  const patterns=new Set();
+  for(const note of notes)patterns.add(phraseRhythmPattern(notes.filter(n=>Math.floor(n.offset/cap)===Math.floor(note.offset/cap))));
+  if(patterns.size>2)score-=18;
+  const endBar=Math.min(ctx.timeline.length-1,Math.max(0,Math.floor(notes.at(-1).offset/cap)));
+  const lastSym=ctx.timeline[endBar]?.symbol||ctx.timeline[0]?.symbol||'C';
+  const cadenceChoices=[0,1,2].map(d=>chordToneMidi(lastSym,5,d));
+  const end=midis.at(-1);
+  if(!cadenceChoices.some(m=>Math.abs(m-end)<=2))score-=22;
+  const apex=Math.max(...midis),apexIndex=midis.indexOf(apex);
+  if(apexIndex<Math.floor(midis.length*.35)||apexIndex>Math.floor(midis.length*.8))score-=10;
+  if(end>=apex&&midis.length>4)score-=8;
+  return Math.max(0,Math.min(100,score));
+ }
+ function generateMusicalPhrase(ctx,rng){
+  const profile=pick(rng,PHRASE_PROFILES);
+  const fragment=composeMusicalPhrase(ctx,rng,profile);
+  return {card:phraseCard(fragment,profile.label,profile.style,profile.id),quality:scorePhrase(fragment,ctx),profile};
+ }
+ function fragmentMidis(fragment){return fragment.map(item=>C.pitchMidi(item.event.pitches[0]));}
  function variationDescriptors(fragment){
-  if(!fragment?.length)return [];
-  return [
+  if(!fragment?.length||fragment.length<2)return [];
+  const candidates=[
    {id:'inversion',label:'転回',fragment:invertFragment(fragment)},
    {id:'retrograde',label:'逆行',fragment:retrogradeFragment(fragment)},
    {id:'sequenceUp',label:'上行順次',fragment:sequenceFragment(fragment,2)},
@@ -224,25 +377,40 @@
    {id:'augment',label:'音価拡大',fragment:scaleDurationFragment(fragment,.5)},
    {id:'diminish',label:'音価縮小',fragment:scaleDurationFragment(fragment,2)}
   ];
+  return candidates.filter(item=>recognizableVariation(fragment,item.fragment));
+ }
+ function contourSimilarity(a,b){
+  if(!a?.length||!b?.length)return 0;
+  const len=Math.min(a.length,b.length);
+  if(len<2)return 1;
+  let match=0;
+  for(let i=1;i<len;i++){
+   const da=Math.sign(a[i]-a[i-1])||0,db=Math.sign(b[i]-b[i-1])||0;
+   if(da===db)match++;
+  }
+  return match/(len-1);
+ }
+ function recognizableVariation(fragment,transformed){
+  const base=fragmentMidis(fragment),next=fragmentMidis(transformed);
+  if(next.length<2)return false;
+  if(contourSimilarity(base,next)<.55)return false;
+  const spread=Math.max(...next)-Math.min(...next);
+  if(spread>MAX_RANGE+2)return false;
+  return true;
  }
  function ornamentVariations(fragment,rng){
+  if(fragment.length<2)return [];
+  const base=fragmentMidis(fragment);
   const out=[];
-  for(let pass=0;pass<2;pass++){
-   const decorated=[];
-   let cursor=0;
-   for(const item of fragment){
-    decorated.push({...item,offset:cursor});
-    cursor=item.offset+C.durationTicks(item.event.den,item.event.dots||0);
-    if(rng()<.55){
-     const p=item.event.pitches[0];
-     const alter=(p.alter||0)+(pass===0?1:-1);
-     const neighbor={...p,alter:Math.max(-2,Math.min(2,alter))};
-     const graceDen=Math.min(16,item.event.den*2);
-     const graceOffset=cursor-Math.floor(C.durationTicks(item.event.den,item.event.dots||0)/3);
-     decorated.push({offset:Math.max(0,graceOffset),event:C.makeNote(neighbor,graceDen,0)});
-    }
-   }
-   out.push(phraseCard(decorated,pass===0?'装飾（経過）':'装飾（短縮）','ornament',`orn${pass}`));
+  for(const kind of ['upper','lower']){
+   const decorated=cloneFragment(fragment);
+   const pickIndex=1+Math.floor(rng()*(decorated.length-1));
+   const item=decorated[pickIndex];
+   const midi=base[pickIndex];
+   const neighbor=midi+(kind==='upper'?1:-1);
+   const grace={offset:item.offset-Math.max(C.WHOLE/64,1),event:C.makeNote(P.fromMidi(neighbor,0),Math.min(16,item.event.den*2),0)};
+   decorated.splice(pickIndex,0,grace);
+   if(recognizableVariation(fragment,decorated))out.push(phraseCard(decorated,`装飾（${kind==='upper'?'上隣':'下隣'}）`,'変奏','orn-'+kind));
   }
   return out;
  }
@@ -251,56 +419,21 @@
   const fifths=ctx.fifths,mode=ctx.mode;
   const baseRoman=Pop.symbolToRoman(ctx.timeline[0]?.symbol,fifths,mode)||'I';
   const alts=Pop.rankNext([baseRoman],fifths,mode,5);
-  return alts.slice(0,3).map((alt,i)=>{
+  return alts.slice(0,2).map((alt,i)=>{
    const sym=alt.symbol;
-   const pool=P.chordPitches(sym,5);
-   const mapped=fragment.map(item=>{
-    const root=item.event.pitches[0];
-    const target=pool.reduce((best,p)=>{
-     const d=Math.abs(C.pitchMidi(p)-C.pitchMidi(root));
-     return d<(best?.d??99)?{p,d}:best;
-    },null)?.p||pool[0];
-    const event={...item.event,pitches:C.normalizeChord([target])};
+   const octave=5;
+   const mapped=fragment.map((item,idx)=>{
+    const midi=C.pitchMidi(item.event.pitches[0]);
+    const strong=idx===0||idx===fragment.length-1;
+    const target=strong?nearestChordTone(midi,sym,octave,[0,2,1]):nearestChordTone(midi,sym,octave,[1,2,0]);
+    const event={...item.event,pitches:C.normalizeChord([P.fromMidi(target,ctx.fifths)])};
     return {...item,event};
    });
-   return phraseCard(mapped,`再和声（${sym}）`,'reharm',`reharm${i}`);
-  });
- }
- const PHRASE_PROFILES=[
-  {id:'lyrical',label:'歌うメロディ',style:'歌',contour:'arch',octave:5,den:4,density:3,minMidi:60,maxMidi:79},
-  {id:'march',label:'マーチの呼び',style:'マーチ',contour:'up',octave:4,den:4,density:4,minMidi:55,maxMidi:72},
-  {id:'staccato',label:'軽い8分',style:'軽快',contour:'leap',octave:5,den:8,density:6,minMidi:58,maxMidi:84},
-  {id:'brassLow',label:'低音ブラス',style:'低音',contour:'down',octave:3,den:4,density:3,minMidi:48,maxMidi:65},
-  {id:'fanfare',label:'ファンファーレ',style:'金管',contour:'leap',octave:5,den:4,density:5,minMidi:60,maxMidi:84},
-  {id:'calm',label:'長い音',style:'穏やか',contour:'arch',octave:4,den:2,density:2,minMidi:55,maxMidi:76},
-  {id:'clarinet',label:'クラリネット風',style:'木管',contour:'step',octave:5,den:8,density:5,minMidi:62,maxMidi:81},
-  {id:'answer',label:'応答フレーズ',style:'対話',contour:'down',octave:4,den:4,density:3,bars:2,minMidi:55,maxMidi:77}
- ];
- function generateProceduralPhrase(ctx,rng,profile){
-  const bars=profile.bars||(rng()>.4?2:1);
-  const cap=C.measureTicks(ctx.time);
-  const notes=[];
-  let last=(profile.baseMidi??67);
-  for(let bar=0;bar<bars;bar++){
-   const sym=ctx.timeline[bar%ctx.timeline.length]?.symbol||'C';
-   const pool=P.chordPitches(sym,profile.octave);
-   const steps=profile.density||3;
-   for(let s=0;s<steps;s++){
-    const tick=Math.round((cap/steps)*s);
-    let midi;
-    if(profile.contour==='up')midi=last+Math.max(1,Math.round(rng()*2));
-    else if(profile.contour==='down')midi=last-Math.max(1,Math.round(rng()*2));
-    else if(profile.contour==='arch')midi=last+(s<steps/2?1:-1);
-    else if(profile.contour==='leap')midi=last+pick(rng,[0,3,4,5,7,-2,-3]);
-    else if(profile.contour==='step')midi=C.pitchMidi(pool[Math.floor(rng()*pool.length)]);
-    else midi=C.pitchMidi(pool[Math.floor(rng()*pool.length)]);
-    last=Math.max(profile.minMidi,Math.min(profile.maxMidi,midi));
-    const pitch=P.fromMidi(last,ctx.fifths);
-    const dots=rng()>.82?1:0;
-    notes.push({offset:bar*cap+tick,event:C.makeNote(pitch,profile.den,dots)});
-   }
-  }
-  return phraseCard(notes,profile.label,profile.style,profile.id);
+   if(!recognizableVariation(fragment,mapped))return null;
+   const q=scorePhrase(mapped,ctx);
+   if(q<QUALITY_THRESHOLD)return null;
+   return phraseCard(mapped,`再和声（${sym}）`,'変奏',`reharm${i}`);
+  }).filter(Boolean);
  }
  function harmonyContext(part,fromMi,draftTimeline){
   const start=Math.max(0,fromMi||0);
@@ -324,25 +457,37 @@
  function buildPhraseStream(ctx,options={}){
   const seed=options.seed>>>0||1;
   const rng=mulberry32(seed);
-  const count=options.count||10;
+  const count=options.count||6;
+  const threshold=options.threshold??QUALITY_THRESHOLD;
   const seedFragment=options.seedFragment;
   const out=[],seen=new Set();
   function push(card){
-   const sig=`${card.label}:${card.fragment.length}:${C.pitchMidi(card.fragment[0]?.event.pitches?.[0]||{step:'C',octave:4,alter:0})}`;
+   const sig=`${card.label}:${phraseRhythmPattern(card.fragment)}:${fragmentMidis(card.fragment).join('-')}`;
    if(seen.has(sig))return;
    seen.add(sig);
    out.push(card);
   }
+  function pushScored(card,quality){
+   if(quality<threshold)return;
+   card.quality=quality;
+   push(card);
+  }
   if(seedFragment?.length){
-   for(const v of variationDescriptors(seedFragment))push(phraseCard(v.fragment,v.label,'変奏',v.id));
-   for(const v of ornamentVariations(seedFragment,rng))push(v);
-   for(const v of reharmVariations(seedFragment,ctx,rng))push(v);
+   const baseNotes=seedFragment.map(item=>({offset:item.offset,event:C.copy(item.event)}));
+   const seedQuality=scorePhrase(baseNotes,ctx);
+   if(seedQuality>=threshold-8)pushScored(phraseCard(baseNotes,'元のモチーフ','種',`seed-${seed}`),seedQuality);
+   for(const v of variationDescriptors(seedFragment)){
+    const q=scorePhrase(v.fragment,ctx);
+    pushScored(phraseCard(v.fragment,v.label,'変奏',v.id),q);
+   }
+   for(const v of ornamentVariations(seedFragment,rng))pushScored(v,scorePhrase(v.fragment,ctx));
+   for(const v of reharmVariations(seedFragment,ctx,rng))pushScored(v,v.quality||scorePhrase(v.fragment,ctx));
   }
   let tries=0;
-  while(out.length<count&&tries<count*5){
+  while(out.length<count&&tries<count*35){
    tries++;
-   const profile={...pick(rng,PHRASE_PROFILES)};
-   push(generateProceduralPhrase(ctx,rng,profile));
+   const {card,quality}=generateMusicalPhrase(ctx,rng);
+   pushScored(card,quality);
   }
   return out;
  }
@@ -388,6 +533,7 @@
  }
  return {
   HISTORY_KEY,MOODS,SCENE_PROMPTS,CONSTRAINTS,mulberry32,rollSpark,applySparkDocument,variationDescriptors,fragmentFromRange,
-  applyFragment,previewSequence,pushHistory,loadHistory,emptyLocks,harmonyContext,buildPhraseStream,previewFragment,phraseCard,PHRASE_PROFILES
+  applyFragment,previewSequence,pushHistory,loadHistory,emptyLocks,harmonyContext,buildPhraseStream,previewFragment,phraseCard,
+  PHRASE_PROFILES,QUALITY_THRESHOLD,MAX_LEAP,MAX_RANGE,scorePhrase,composeMusicalPhrase,contourSimilarity,fragmentMidis
  };
 });

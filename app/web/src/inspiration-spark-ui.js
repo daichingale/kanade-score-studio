@@ -39,7 +39,7 @@
     const art=document.createElement('article');
     art.className='spark-phrase-card';
     art.tabIndex=0;
-    art.innerHTML=`<h3>${card.label}</h3><p>${card.fragment.length}音 <span>${card.style||''}</span></p>`;
+    art.innerHTML=`<h3>${card.label}</h3><p>${card.fragment.length}音 <span>${card.style||''}</span>${card.quality!=null?` · 品質${card.quality}`:''}</p>`;
     const actions=document.createElement('div');
     actions.className='spark-phrase-actions';
     const play=document.createElement('button');
@@ -65,7 +65,7 @@
    if(!ctx)return;
    const frag=replaceSelection||selectionKey?api.selectionFragment?.():null;
    streamSeed=(streamSeed+1)>>>0;
-   const batch=Spark.buildPhraseStream(ctx,{seed:streamSeed,seedFragment:frag,count:append?6:12});
+   const batch=Spark.buildPhraseStream(ctx,{seed:streamSeed,seedFragment:frag,count:append?4:6});
    if(append)cards=cards.concat(batch);else cards=batch;
    paintContext(ctx);
    paintStream();
@@ -84,7 +84,7 @@
    if(autoTimer){clearInterval(autoTimer);autoTimer=null;}
    const toggle=$('sparkAutoGenerate');
    if(toggle)toggle.checked=!!on;
-   if(on)autoTimer=setInterval(()=>loadBatch({append:true}),2800);
+   if(on)autoTimer=setInterval(()=>loadBatch({append:true}),3400);
   }
 
   function open(){
