@@ -769,32 +769,22 @@
   </dialog>
   <dialog id="sparkDialog" class="settings-panel spark-dialog" aria-labelledby="sparkHeading">
     <div class="panel-heading"><h2 id="sparkHeading">ひらめき</h2><form method="dialog"><button aria-label="閉じる">×</button></form></div>
-    <p class="panel-hint">作曲の種をランダムに組み立てます。気に入った項目は🔒で固定して再抽選できます。採用はいつでも任意です。</p>
-    <div class="spark-dice-row">
-      <button type="button" id="sparkRoll" class="solid spark-dice">🎲 もう一度</button>
-      <button type="button" id="sparkPreview">試聴</button>
-      <button type="button" id="sparkClosePreview" hidden>試聴停止</button>
-      <button type="button" id="sparkKeep" class="solid">楽譜に採用</button>
+    <p id="sparkSeedHint" class="panel-hint">調とコードに合わせてフレーズを連続提案します。採用は任意です。</p>
+    <div class="spark-context" aria-live="polite">
+      <span id="sparkContextKey"></span>
+      <span id="sparkContextChords"></span>
+      <span id="sparkContextTime"></span>
     </div>
-    <dl class="spark-summary">
-      <div><dt>ムード</dt><dd><output id="sparkMood"></output> <label class="spark-lock"><input type="checkbox" id="sparkMoodLock">🔒</label></dd></div>
-      <div><dt>調</dt><dd><output id="sparkKey"></output> <label class="spark-lock"><input type="checkbox" id="sparkKeyLock">🔒</label></dd></div>
-      <div><dt>テンポ</dt><dd><output id="sparkTempo"></output> <label class="spark-lock"><input type="checkbox" id="sparkTempoLock">🔒</label></dd></div>
-      <div><dt>拍子</dt><dd><output id="sparkTime"></output> <label class="spark-lock"><input type="checkbox" id="sparkRhythmLock">🔒</label></dd></div>
-      <div><dt>進行</dt><dd><output id="sparkProgression"></output> <label class="spark-lock"><input type="checkbox" id="sparkProgressionLock">🔒</label></dd></div>
-      <div><dt>モチーフ</dt><dd><output id="sparkMotif"></output> <label class="spark-lock"><input type="checkbox" id="sparkMotifLock">🔒</label></dd></div>
-      <div><dt>シーン</dt><dd><output id="sparkScene"></output></dd></div>
-    </dl>
-    <div id="sparkConstraints" class="spark-constraints" aria-label="今回の制約カード"></div>
-    <div id="sparkPromptPool" class="spark-prompt-pool" role="group" aria-label="着想のヒント"></div>
-    <details class="spark-history" open>
-      <summary>過去のひらめき</summary>
-      <div id="sparkHistory" class="spark-history-list"></div>
+    <div class="spark-stream-toolbar">
+      <button type="button" id="sparkMore" class="solid">＋ もっと</button>
+      <label class="spark-auto"><input type="checkbox" id="sparkAutoGenerate" checked> 自動で追加</label>
+    </div>
+    <div id="sparkPhraseStream" class="spark-phrase-stream" tabindex="0" aria-label="フレーズ候補"></div>
+    <details class="spark-extra">
+      <summary>おまかせ一括（簡易）</summary>
+      <p class="panel-hint">制約カード付き一括生成は後続で拡張予定。いまはおまかせ書き込みのみ。</p>
+      <button type="button" id="sparkQuickDice">🎲 おまかせで楽譜に書く</button>
     </details>
-    <section id="sparkVariations" class="spark-variations" hidden>
-      <h3>選択範囲の変奏</h3>
-      <div id="sparkVariationCards" class="spark-variation-cards"></div>
-    </section>
   </dialog>
   <dialog id="popProgressionDialog" class="settings-panel pop-progression-dialog" aria-labelledby="popProgressionHeading">
     <div class="panel-heading"><h2 id="popProgressionHeading">ポップ進行を入力</h2><form method="dialog"><button aria-label="閉じる">×</button></form></div>

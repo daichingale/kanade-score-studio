@@ -208,6 +208,12 @@
    return {...item,event:{...item.event,den}};
   });
  }
+ function cloneFragment(fragment){
+  return fragment.map(item=>({offset:item.offset,event:C.copy(item.event)}));
+ }
+ function phraseCard(fragment,label,style,id){
+  return {id:id||C.uid(),label,style,fragment:cloneFragment(fragment)};
+ }
  function variationDescriptors(fragment){
   if(!fragment?.length)return [];
   return [
@@ -218,6 +224,131 @@
    {id:'augment',label:'音価拡大',fragment:scaleDurationFragment(fragment,.5)},
    {id:'diminish',label:'音価縮小',fragment:scaleDurationFragment(fragment,2)}
   ];
+ }
+ function ornamentVariations(fragment,rng){
+  const out=[];
+  for(let pass=0;pass<2;pass++){
+   const decorated=[];
+   let cursor=0;
+   for(const item of fragment){
+    decorated.push({...item,offset:cursor});
+    cursor=item.offset+C.durationTicks(item.event.den,item.event.dots||0);
+    if(rng()<.55){
+     const p=item.event.pitches[0];
+     const alter=(p.alter||0)+(pass===0?1:-1);
+     const neighbor={...p,alter:Math.max(-2,Math.min(2,alter))};
+     const graceDen=Math.min(16,item.event.den*2);
+     const graceOffset=cursor-Math.floor(C.durationTicks(item.event.den,item.event.dots||0)/3);
+     decorated.push({offset:Math.max(0,graceOffset),event:C.makeNote(neighbor,graceDen,0)});
+    }
+   }
+   out.push(phraseCard(decorated,pass===0?'装飾（経過）':'装飾（短縮）','ornament',`orn${pass}`));
+  }
+  return out;
+ }
+ function reharmVariations(fragment,ctx,rng){
+  if(!fragment?.length)return [];
+  const fifths=ctx.fifths,mode=ctx.mode;
+  const baseRoman=Pop.symbolToRoman(ctx.timeline[0]?.symbol,fifths,mode)||'I';
+  const alts=Pop.rankNext([baseRoman],fifths,mode,5);
+  return alts.slice(0,3).map((alt,i)=>{
+   const sym=alt.symbol;
+   const pool=P.chordPitches(sym,5);
+   const mapped=fragment.map(item=>{
+    const root=item.event.pitches[0];
+    const target=pool.reduce((best,p)=>{
+     const d=Math.abs(C.pitchMidi(p)-C.pitchMidi(root));
+     return d<(best?.d??99)?{p,d}:best;
+    },null)?.p||pool[0];
+    const event={...item.event,pitches:C.normalizeChord([target])};
+    return {...item,event};
+   });
+   return phraseCard(mapped,`再和声（${sym}）`,'reharm',`reharm${i}`);
+  });
+ }
+ const PHRASE_PROFILES=[
+  {id:'lyrical',label:'歌うメロディ',style:'歌',contour:'arch',octave:5,den:4,density:3,minMidi:60,maxMidi:79},
+  {id:'march',label:'マーチの呼び',style:'マーチ',contour:'up',octave:4,den:4,density:4,minMidi:55,maxMidi:72},
+  {id:'staccato',label:'軽い8分',style:'軽快',contour:'leap',octave:5,den:8,density:6,minMidi:58,maxMidi:84},
+  {id:'brassLow',label:'低音ブラス',style:'低音',contour:'down',octave:3,den:4,density:3,minMidi:48,maxMidi:65},
+  {id:'fanfare',label:'ファンファーレ',style:'金管',contour:'leap',octave:5,den:4,density:5,minMidi:60,maxMidi:84},
+  {id:'calm',label:'長い音',style:'穏やか',contour:'arch',octave:4,den:2,density:2,minMidi:55,maxMidi:76},
+  {id:'clarinet',label:'クラリネット風',style:'木管',contour:'step',octave:5,den:8,density:5,minMidi:62,maxMidi:81},
+  {id:'answer',label:'応答フレーズ',style:'対話',contour:'down',octave:4,den:4,density:3,bars:2,minMidi:55,maxMidi:77}
+ ];
+ function generateProceduralPhrase(ctx,rng,profile){
+  const bars=profile.bars||(rng()>.4?2:1);
+  const cap=C.measureTicks(ctx.time);
+  const notes=[];
+  let last=(profile.baseMidi??67);
+  for(let bar=0;bar<bars;bar++){
+   const sym=ctx.timeline[bar%ctx.timeline.length]?.symbol||'C';
+   const pool=P.chordPitches(sym,profile.octave);
+   const steps=profile.density||3;
+   for(let s=0;s<steps;s++){
+    const tick=Math.round((cap/steps)*s);
+    let midi;
+    if(profile.contour==='up')midi=last+Math.max(1,Math.round(rng()*2));
+    else if(profile.contour==='down')midi=last-Math.max(1,Math.round(rng()*2));
+    else if(profile.contour==='arch')midi=last+(s<steps/2?1:-1);
+    else if(profile.contour==='leap')midi=last+pick(rng,[0,3,4,5,7,-2,-3]);
+    else if(profile.contour==='step')midi=C.pitchMidi(pool[Math.floor(rng()*pool.length)]);
+    else midi=C.pitchMidi(pool[Math.floor(rng()*pool.length)]);
+    last=Math.max(profile.minMidi,Math.min(profile.maxMidi,midi));
+    const pitch=P.fromMidi(last,ctx.fifths);
+    const dots=rng()>.82?1:0;
+    notes.push({offset:bar*cap+tick,event:C.makeNote(pitch,profile.den,dots)});
+   }
+  }
+  return phraseCard(notes,profile.label,profile.style,profile.id);
+ }
+ function harmonyContext(part,fromMi,draftTimeline){
+  const start=Math.max(0,fromMi||0);
+  const fifths=part.key||0;
+  const mode=fifths<0?'minor':'major';
+  const time=part.time||{num:4,den:4};
+  let timeline=draftTimeline?.length?draftTimeline:null;
+  if(!timeline){
+   const symbols=[];
+   for(let mi=start;mi<Math.min(part.measures.length,start+8);mi++){
+    const marks=(part.measures[mi]?.directions||[]).filter(d=>d.key==='chordSymbol').sort((a,b)=>a.tick-b.tick);
+    if(marks[0]?.text)symbols.push(marks[0].text);
+   }
+   if(symbols.length)timeline=symbols.map(symbol=>({symbol,roman:Pop.symbolToRoman(symbol,fifths,mode)||'I'}));
+  }
+  if(!timeline?.length){
+   timeline=['I','IV','V','vi'].map(roman=>({roman,symbol:Pop.romanToSymbol(roman,fifths,mode)}));
+  }
+  return {fifths,mode,time,timeline,tempo:part.tempo||100,fromMi:start};
+ }
+ function buildPhraseStream(ctx,options={}){
+  const seed=options.seed>>>0||1;
+  const rng=mulberry32(seed);
+  const count=options.count||10;
+  const seedFragment=options.seedFragment;
+  const out=[],seen=new Set();
+  function push(card){
+   const sig=`${card.label}:${card.fragment.length}:${C.pitchMidi(card.fragment[0]?.event.pitches?.[0]||{step:'C',octave:4,alter:0})}`;
+   if(seen.has(sig))return;
+   seen.add(sig);
+   out.push(card);
+  }
+  if(seedFragment?.length){
+   for(const v of variationDescriptors(seedFragment))push(phraseCard(v.fragment,v.label,'変奏',v.id));
+   for(const v of ornamentVariations(seedFragment,rng))push(v);
+   for(const v of reharmVariations(seedFragment,ctx,rng))push(v);
+  }
+  let tries=0;
+  while(out.length<count&&tries<count*5){
+   tries++;
+   const profile={...pick(rng,PHRASE_PROFILES)};
+   push(generateProceduralPhrase(ctx,rng,profile));
+  }
+  return out;
+ }
+ function previewFragment(fragment,tempo){
+  const ms=Math.max(120,Math.min(520,Math.round(60000/(tempo||100)/2)));
+  return fragment.map((item,i)=>({pitch:item.event.pitches[0],delayMs:i*ms,duration:item.event.den}));
  }
  function applyFragment(part,fromTick,fragment){
   let next=part;
@@ -257,6 +388,6 @@
  }
  return {
   HISTORY_KEY,MOODS,SCENE_PROMPTS,CONSTRAINTS,mulberry32,rollSpark,applySparkDocument,variationDescriptors,fragmentFromRange,
-  applyFragment,previewSequence,pushHistory,loadHistory,emptyLocks
+  applyFragment,previewSequence,pushHistory,loadHistory,emptyLocks,harmonyContext,buildPhraseStream,previewFragment,phraseCard,PHRASE_PROFILES
  };
 });

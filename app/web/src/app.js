@@ -1762,6 +1762,7 @@
     $('pasteSelection').disabled=!canPasteSelection();
     $('selectionInfo').textContent=selectionRange?`${selectionLabel()}を選択`:getSelected()?'音符・休符を選択':'カーソル位置から編集';
     renderTools();renderInspector();updateGhost();renderEnsemble();refreshOverview();renderRangeDirection();transport?.refresh();
+    if($('sparkDialog')?.open)sparkUI?.refreshPhrases?.();
   }
   function setMode(mode) {
     mobileDraft=null;mobileChord=null;
@@ -3056,9 +3057,33 @@
     ui.refreshParts?.();
     ui.open();
   }
+  function sparkHarmonyContext(){
+    const Spark=window.KanadeInspirationSpark;
+    const draft=window.KanadeChordComposer?.loadDraft?.()||[];
+    const timeline=draft.length?draft:null;
+    return Spark.harmonyContext(canonicalPart(),caret.mi,timeline);
+  }
   function setupSpark(){
     if(!window.KanadeInspirationSparkUI)return;
     sparkUI=window.KanadeInspirationSparkUI.setup({
+      harmonyContext:sparkHarmonyContext,
+      tempo:()=>score.tempo,
+      chordDraftHint:()=>{
+        const draft=window.KanadeChordComposer?.loadDraft?.();
+        return draft?.length?`コードコンポーザーのタイムライン: ${draft.map(t=>t.symbol).join(' – ')}`:'';
+      },
+      selectionFragment:()=>{
+        const Spark=window.KanadeInspirationSpark;
+        if(!selectionRange)return null;
+        return Spark.fragmentFromRange(canonicalPart(),selectionRange.start,selectionRange.end);
+      },
+      insertPhrase:fragment=>{
+        const at=selectionRange?.start??C.measureOffsets(score)[caret.mi];
+        const part=window.KanadeInspirationSpark.applyFragment(canonicalPart(),at,fragment);
+        const doc=documentScore();
+        const next=doc.ensembleParts||partIndex>0?C.replaceScorePart(doc,partIndex,part):part;
+        commit(next,'フレーズを挿入',selected,activeMeasure,{...caret},selectionRange);
+      },
       currentScore:()=>canonicalPart(),
       selectionRange:()=>selectionRange,
       previewPitch:pitch=>{

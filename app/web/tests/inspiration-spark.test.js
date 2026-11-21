@@ -31,6 +31,24 @@ test('apply spark writes motif and chord symbols',()=>{
  assert.equal(document.tempo,spark.tempo);
 });
 
+test('phrase stream is deterministic with seed',()=>{
+ const ctx=Spark.harmonyContext(C.createScore(),0);
+ const a=Spark.buildPhraseStream(ctx,{seed:99,count:8});
+ const b=Spark.buildPhraseStream(ctx,{seed:99,count:8});
+ assert.equal(a.length,b.length);
+ assert.equal(a[0]?.label,b[0]?.label);
+});
+
+test('selection fragment produces variation cards in stream',()=>{
+ const score=C.createScore();
+ const note=C.makeNote({step:'E',octave:4,alter:0},4,0);
+ const placed=C.placeEventsAt(score,0,0,[note],{}).score;
+ const frag=Spark.fragmentFromRange(placed,0,C.WHOLE/4);
+ const ctx=Spark.harmonyContext(placed,0);
+ const stream=Spark.buildPhraseStream(ctx,{seed:7,seedFragment:frag,count:4});
+ assert.ok(stream.some(c=>c.style==='変奏'));
+});
+
 test('variation retrograde preserves note count',()=>{
  const score=C.createScore();
  const note=C.makeNote({step:'C',octave:4,alter:0},4,0);
