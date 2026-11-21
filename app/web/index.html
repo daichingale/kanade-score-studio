@@ -47,6 +47,8 @@
   <script defer src="src/pop-progression-ui.js"></script>
   <script defer src="src/chord-composer.js"></script>
   <script defer src="src/chord-composer-ui.js"></script>
+  <script defer src="src/inspiration-spark.js"></script>
+  <script defer src="src/inspiration-spark-ui.js"></script>
   <script defer src="src/verovio-mei.js"></script>
   <script defer src="src/verovio-view.js"></script>
   <script defer src="src/app.js"></script>
@@ -59,7 +61,7 @@
       <div class="brand"><span class="brand-mark">𝄞</span><div><strong>kanade<span class="brand-dot">.</span></strong></div></div>
       <nav id="appMenubar" class="app-menubar" aria-label="メニューバー">
         <details class="app-menu" id="fileMenu"><summary>ファイル</summary><div class="menu-panel"><button id="newBtn" class="ghost" title="新規作成">新規</button><button id="openBtn" class="ghost" title="Kanade、MusicXML、MXLを開く">楽譜を開く</button><button id="mediaOpen" type="button" class="ghost">動画・音声を開く</button><button id="demoBtn" class="ghost" title="入力例を表示">サンプル譜</button><div class="menu-divider"></div><div class="menuwrap"><button id="exportBtn" class="ghost" aria-expanded="false">書き出し ▾</button><div id="exportMenu" class="export-menu hidden"><button data-export="wav">WAV 音声 (.wav)</button><button data-export="mp3">MP3 音声 (.mp3)</button><button data-export="midi">MIDI (.mid)</button><button data-export="musicxml">MusicXML (.musicxml)</button><button data-export="svg">SVG 画像 (.svg)</button><button data-export="ksl">KSL テキスト (.ksl) <small>試験的</small></button><button data-export="print">印刷プレビュー</button><button data-export="pdf">PDF出力</button></div></div></div></details>
-        <details class="app-menu" id="editMenu"><summary>編集</summary><div class="menu-panel"><button id="chordComposerOpen" type="button">コードで作曲</button><button id="popProgressionOpen" type="button">ポップ進行を入力</button><button id="selectMeasure" title="現在の小節全体を選択">小節選択</button><button id="selectSingle">音符・休符を1つ選択</button><button id="selectToStart">現在の音符から曲頭まで</button><button id="selectToEnd">現在の音符から曲末まで</button><div class="menu-divider"></div><button id="deleteNoteMenu">音符・休符を消去</button><button id="copySelection" title="コピー（Ctrl+C）">コピー</button><button id="cutSelection" title="切り取り（Ctrl+X）">切り取り</button><button id="pasteSelection" title="カーソル位置から貼り付け（Ctrl+V）" disabled>貼り付け</button><div class="menu-divider"></div><button id="addMeasure">＋ 小節を追加</button><button id="insertMeasureBefore" title="選択中の小節の前に空小節を挿入">手前に挿入</button><button id="duplicateMeasures" title="選択範囲がまたがる小節を複製">小節複製</button><button id="removeMeasure" title="選択範囲がまたがる小節を丸ごと削除（Ctrl+Zで戻す）">小節削除</button></div></details>
+        <details class="app-menu" id="editMenu"><summary>編集</summary><div class="menu-panel"><button id="sparkOpen" type="button">ひらめき</button><button id="chordComposerOpen" type="button">コードで作曲</button><button id="popProgressionOpen" type="button">ポップ進行を入力</button><button id="selectMeasure" title="現在の小節全体を選択">小節選択</button><button id="selectSingle">音符・休符を1つ選択</button><button id="selectToStart">現在の音符から曲頭まで</button><button id="selectToEnd">現在の音符から曲末まで</button><div class="menu-divider"></div><button id="deleteNoteMenu">音符・休符を消去</button><button id="copySelection" title="コピー（Ctrl+C）">コピー</button><button id="cutSelection" title="切り取り（Ctrl+X）">切り取り</button><button id="pasteSelection" title="カーソル位置から貼り付け（Ctrl+V）" disabled>貼り付け</button><div class="menu-divider"></div><button id="addMeasure">＋ 小節を追加</button><button id="insertMeasureBefore" title="選択中の小節の前に空小節を挿入">手前に挿入</button><button id="duplicateMeasures" title="選択範囲がまたがる小節を複製">小節複製</button><button id="removeMeasure" title="選択範囲がまたがる小節を丸ごと削除（Ctrl+Zで戻す）">小節削除</button></div></details>
         <button class="menu-trigger" data-panel="scoreSettings">楽譜</button>
         <button class="menu-trigger" data-transport-action="mix">再生</button><button class="menu-trigger" data-panel="collabPanel">共同編集</button><button class="menu-trigger" id="agentToggle" type="button" aria-controls="agentPanel" aria-expanded="false" title="吹奏楽の相談（Ctrl+J）">相談</button>
         <details class="app-menu" id="viewMenu"><summary>表示</summary><div class="menu-panel"><button id="menuPianoRoll" type="button">ピアノロール</button><button id="menuOverview">全体譜・自動整形</button><button id="verovioToggle" type="button" data-verovio-toggle aria-pressed="true">刻譜で表示（Verovio）</button><button id="menuPublication">作品情報・表紙</button><button id="menuPrintPreview">印刷プレビュー</button><button data-view-action="in">拡大（Ctrl＋＋）</button><button data-view-action="out">縮小（Ctrl＋−）</button><button data-view-action="actual">100%（Ctrl＋0）</button><button data-view-action="fit">幅に合わせる</button><button data-hand-tool aria-pressed="false">手のひらツール（H）</button><div class="menu-divider"></div><button data-toggle-inspector>音符の詳細を表示／閉じる</button><button id="installApp" hidden>アプリとしてインストール</button><button id="agentMenu" type="button">吹奏楽AIに相談（Ctrl＋J）</button><button data-panel="helpPanel">操作ガイド・アプリ情報</button></div></details>
@@ -235,7 +237,7 @@
                 <button data-mobile-action="selectToEnd" aria-label="現在の音符から曲末まで">曲末まで</button>
               </div>
               <div class="mobile-row mobile-marks">
-                <button data-mobile-action="chordComposer">コードで作曲</button>
+                <button data-mobile-action="spark">ひらめき</button><button data-mobile-action="chordComposer">コードで作曲</button>
                 <button data-mobile-action="deleteNote">音符を消去</button><button data-mobile-action="loop">範囲ループ</button><button data-mobile-action="performance">演奏・コード入力</button><button data-mobile-action="commands">全コマンド</button><button data-mobile-action="settings" aria-expanded="false" aria-controls="entryBar">入力設定</button>
               </div>
               <div class="mobile-row mobile-marks">
@@ -764,6 +766,35 @@
       <label><input type="checkbox" id="chordComposerLearn"> 書き込み後に進行を学習（この端末のみ）</label>
     </details>
     <div class="panel-actions"><form method="dialog"><button type="submit">閉じる</button></form><button type="button" id="chordComposerGenerate" class="solid">楽譜に反映</button></div>
+  </dialog>
+  <dialog id="sparkDialog" class="settings-panel spark-dialog" aria-labelledby="sparkHeading">
+    <div class="panel-heading"><h2 id="sparkHeading">ひらめき</h2><form method="dialog"><button aria-label="閉じる">×</button></form></div>
+    <p class="panel-hint">作曲の種をランダムに組み立てます。気に入った項目は🔒で固定して再抽選できます。採用はいつでも任意です。</p>
+    <div class="spark-dice-row">
+      <button type="button" id="sparkRoll" class="solid spark-dice">🎲 もう一度</button>
+      <button type="button" id="sparkPreview">試聴</button>
+      <button type="button" id="sparkClosePreview" hidden>試聴停止</button>
+      <button type="button" id="sparkKeep" class="solid">楽譜に採用</button>
+    </div>
+    <dl class="spark-summary">
+      <div><dt>ムード</dt><dd><output id="sparkMood"></output> <label class="spark-lock"><input type="checkbox" id="sparkMoodLock">🔒</label></dd></div>
+      <div><dt>調</dt><dd><output id="sparkKey"></output> <label class="spark-lock"><input type="checkbox" id="sparkKeyLock">🔒</label></dd></div>
+      <div><dt>テンポ</dt><dd><output id="sparkTempo"></output> <label class="spark-lock"><input type="checkbox" id="sparkTempoLock">🔒</label></dd></div>
+      <div><dt>拍子</dt><dd><output id="sparkTime"></output> <label class="spark-lock"><input type="checkbox" id="sparkRhythmLock">🔒</label></dd></div>
+      <div><dt>進行</dt><dd><output id="sparkProgression"></output> <label class="spark-lock"><input type="checkbox" id="sparkProgressionLock">🔒</label></dd></div>
+      <div><dt>モチーフ</dt><dd><output id="sparkMotif"></output> <label class="spark-lock"><input type="checkbox" id="sparkMotifLock">🔒</label></dd></div>
+      <div><dt>シーン</dt><dd><output id="sparkScene"></output></dd></div>
+    </dl>
+    <div id="sparkConstraints" class="spark-constraints" aria-label="今回の制約カード"></div>
+    <div id="sparkPromptPool" class="spark-prompt-pool" role="group" aria-label="着想のヒント"></div>
+    <details class="spark-history" open>
+      <summary>過去のひらめき</summary>
+      <div id="sparkHistory" class="spark-history-list"></div>
+    </details>
+    <section id="sparkVariations" class="spark-variations" hidden>
+      <h3>選択範囲の変奏</h3>
+      <div id="sparkVariationCards" class="spark-variation-cards"></div>
+    </section>
   </dialog>
   <dialog id="popProgressionDialog" class="settings-panel pop-progression-dialog" aria-labelledby="popProgressionHeading">
     <div class="panel-heading"><h2 id="popProgressionHeading">ポップ進行を入力</h2><form method="dialog"><button aria-label="閉じる">×</button></form></div>

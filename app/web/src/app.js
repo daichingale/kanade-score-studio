@@ -5,7 +5,7 @@
   const C=window.KanadeCore, Ex=window.KanadeExport, R=window.KanadeRenderer, B=window.KanadeEditing;
   const $=id=>document.getElementById(id);
   const P=window.KanadePerformance,A=window.KanadeArrangement;
-  let performancePanel,popProgressionUI,chordComposerUI,arrangementUI,transport,playbackDisplay=null,playbackPaint=null;
+  let performancePanel,popProgressionUI,chordComposerUI,sparkUI,arrangementUI,transport,playbackDisplay=null,playbackPaint=null;
   let chordAssistEnabled=true;
   try{chordAssistEnabled=localStorage.getItem('kanade.chordAssist.v1')!=='off';}catch(_){}
   const STORAGE='kanade.web.v1.autosave',OVERWRITE_STORAGE='kanade.web.v1.overwrite';
@@ -1580,7 +1580,7 @@
       addNote:()=>mobileChord?applyMobileChord():insert('note',undefined,true,mobileDraft),addRest:()=>insert('rest',undefined,true,mobileDraft),
       octDown:()=>{if(mobileChord||mobileDraft)changeMobilePitch(-7);else{setOctave(octave-1);renderMobile();}},
       octUp:()=>{if(mobileChord||mobileDraft)changeMobilePitch(7);else{setOctave(octave+1);renderMobile();}},
-      chord:toggleMobileChord,chordComposer:()=>openChordComposer(),performance:()=>performancePanel.open(),loop:()=>transport.toggleLoop(),
+      chord:toggleMobileChord,spark:()=>openSpark(),chordComposer:()=>openChordComposer(),performance:()=>performancePanel.open(),loop:()=>transport.toggleLoop(),
       countDown:()=>adjustMeasureCount(-1),countUp:()=>adjustMeasureCount(1),
       addMeasure:()=>addMobileMeasures(1),addManyMeasures:()=>addMobileMeasures($('mobileMeasureCount').valueAsNumber),
       insertBefore:insertMeasureBefore,duplicateMeasure:duplicateMeasures,removeMeasures:removeSelectedMeasures,
@@ -2063,6 +2063,7 @@
     ['演奏・MIDI鍵盤で入力','midi keyboard performance step 鍵盤',()=>performancePanel.open('step'),''],
     ['リアルタイム録音入力','record quantize MIDI performance',()=>performancePanel.open('record'),''],
     ['コード名から和音を入力','chord symbol jazz harmony',()=>performancePanel.open('chord'),''],
+    ['ひらめき','spark inspiration 作曲 インスピレーション',()=>openSpark(),''],
     ['コードで作曲','chord composer pad タイムライン 初心者',()=>openChordComposer(),''],
     ['ポップ進行を入力','pop chord progression 王道 komuro',()=>openPopProgression(),''],
     ['音符入力モード','note entry onpu',()=>setCommandMode('entry'),'N'],
@@ -3055,6 +3056,34 @@
     ui.refreshParts?.();
     ui.open();
   }
+  function setupSpark(){
+    if(!window.KanadeInspirationSparkUI)return;
+    sparkUI=window.KanadeInspirationSparkUI.setup({
+      currentScore:()=>canonicalPart(),
+      selectionRange:()=>selectionRange,
+      previewPitch:pitch=>{
+        try{stopAudio();sound.audition([pitch],C.soundName(score),C.soundingOffset(score)).catch(()=>{});}catch(_){}
+      },
+      previewChord:symbol=>{
+        try{stopAudio();sound.audition(P.chordPitches(symbol,4),C.soundName(score),C.soundingOffset(score)).catch(()=>{});}catch(_){}
+      },
+      commitSpark:spark=>{
+        const out=window.KanadeInspirationSpark.applySparkDocument(documentScore(),spark,{from:caret.mi+1,part:partIndex+1});
+        commit(out.document,out.summary,selected,activeMeasure,{...caret},selectionRange,{document:out.document,focusPart:out.focusPart});
+      },
+      insertVariation:fragment=>{
+        const at=selectionRange?.start??C.measureOffsets(score)[caret.mi];
+        const part=window.KanadeInspirationSpark.applyFragment(canonicalPart(),at,fragment);
+        const doc=documentScore();
+        const next=doc.ensembleParts||partIndex>0?C.replaceScorePart(doc,partIndex,part):part;
+        commit(next,'変奏を挿入',selected,activeMeasure,{...caret},selectionRange);
+      }
+    });
+  }
+  function openSpark(){
+    setupSpark();
+    sparkUI?.open();
+  }
   function setupPerformance(){
     performancePanel=window.KanadePerformancePanel.setup({
       chordAssistEnabled:()=>chordAssistEnabled,
@@ -3109,6 +3138,7 @@
       try{localStorage.setItem('kanade.instrumentLanguage',instrumentLanguage);}catch(_){}
       render();
     };
+    $('sparkOpen')?.addEventListener('click',()=>attempt(openSpark));
     $('chordComposerOpen')?.addEventListener('click',()=>attempt(openChordComposer));
     $('popProgressionOpen')?.addEventListener('click',()=>attempt(openPopProgression));
     const chordAssist=$('chordAssistToggle');

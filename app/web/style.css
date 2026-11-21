@@ -620,6 +620,26 @@
 .chord-composer-chip-meta{font-size:10px;text-align:center;color:#5b728a}
 .chord-composer-chip-del{min-height:28px;font-size:16px;line-height:1;opacity:.7}
 .chord-composer-output label{display:flex;flex-direction:column;gap:4px;margin:.5rem 0;font-size:13px}
+.spark-dialog{width:min(540px,calc(100vw - 12px));max-height:min(94dvh,760px);overflow:auto}
+.spark-dice-row{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.spark-dice{min-height:44px;font-size:15px;touch-action:manipulation}
+.spark-summary{display:grid;gap:6px;margin:12px 0;font-size:13px}
+.spark-summary>div{display:grid;grid-template-columns:4.5rem 1fr;gap:6px;align-items:center}
+.spark-summary dt{font-weight:700;color:#36516c;margin:0}
+.spark-summary dd{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.spark-lock{font-size:12px;opacity:.9}
+.spark-constraints,.spark-prompt-pool{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.spark-constraint,.spark-prompt{padding:6px 10px;border-radius:999px;background:#edf4fa;border:1px dashed #9db4c8;font-size:12px;color:#2a4b6c}
+.spark-prompt{min-height:36px;touch-action:manipulation;cursor:pointer}
+.spark-history summary{cursor:pointer;font-weight:600}
+.spark-history-list{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.spark-history-list button{text-align:left;min-height:36px;font-size:12px}
+.spark-variations{margin-top:12px;border-top:1px solid #d5e3ef;padding-top:10px}
+.spark-variation-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.spark-variation{padding:8px;border:1px solid #c8d9e8;border-radius:10px;background:#f8fbff;font-size:12px}
+.spark-variation h3{margin:0 0 4px;font-size:13px}
+.spark-variation button{margin-top:6px;min-height:32px;width:100%}
+@media(max-width:760px){.spark-dialog{width:calc(100vw - 8px);max-height:calc(100dvh - 8px)}.spark-summary>div{grid-template-columns:3.8rem 1fr}}
 @media(max-width:760px){
  .chord-composer-dialog{width:calc(100vw - 10px);max-height:calc(100dvh - 12px);margin:6px auto}
  .chord-composer-pad{grid-template-columns:repeat(3,minmax(0,1fr))}
