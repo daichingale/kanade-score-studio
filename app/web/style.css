@@ -620,6 +620,22 @@
 .chord-composer-chip-meta{font-size:10px;text-align:center;color:#5b728a}
 .chord-composer-chip-del{min-height:28px;font-size:16px;line-height:1;opacity:.7}
 .chord-composer-output label{display:flex;flex-direction:column;gap:4px;margin:.5rem 0;font-size:13px}
+.spark-dialog{width:min(560px,calc(100vw - 10px));max-height:min(94dvh,780px);overflow:auto;padding-bottom:env(safe-area-inset-bottom)}
+.spark-context{display:flex;flex-wrap:wrap;gap:8px 12px;margin:8px 0 10px;font-size:12px;color:#34556f;font-weight:600}
+.spark-stream-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;margin:6px 0 10px}
+.spark-ai-status{font-size:11px;color:#5b7085;opacity:.9}
+.spark-ai-tag{display:inline-block;margin-top:2px;font-size:10px;color:#4a6a88;opacity:.85}
+.spark-auto{font-size:13px;display:flex;align-items:center;gap:6px}
+.spark-phrase-stream{display:flex;gap:10px;overflow-x:auto;padding:6px 2px 14px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;min-height:150px}
+.spark-phrase-card{flex:0 0 min(168px,72vw);scroll-snap-align:start;border:1px solid #b8d0e4;border-radius:14px;background:linear-gradient(180deg,#fbfdff,#f0f6fc);padding:10px;display:flex;flex-direction:column;gap:8px;touch-action:manipulation}
+.spark-phrase-card h3{margin:0;font-size:14px;color:#16395e}
+.spark-phrase-card p{margin:0;font-size:11px;color:#56748f}
+.spark-phrase-card p span{opacity:.85}
+.spark-phrase-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:auto}
+.spark-phrase-actions button{min-height:40px;font-size:12px;touch-action:manipulation}
+.spark-extra{margin-top:8px;font-size:13px}
+.spark-extra button{min-height:40px;margin-top:6px}
+@media(max-width:760px){.spark-dialog{width:calc(100vw - 6px);max-height:calc(100dvh - 6px)}.spark-phrase-card{flex-basis:75vw}}
 @media(max-width:760px){
  .chord-composer-dialog{width:calc(100vw - 10px);max-height:calc(100dvh - 12px);margin:6px auto}
  .chord-composer-pad{grid-template-columns:repeat(3,minmax(0,1fr))}
