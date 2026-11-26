@@ -31,7 +31,13 @@ export function parseMusicXmlImport(xml){
   require(base + 'percussion.js');
   require(base + 'samples.js');
   require(base + 'musicxml-import.js');
-  return global.KanadeMusicXMLImport.parse(xml);
+  require(base + 'omr-musicxml-post.js');
+  const parsed = global.KanadeMusicXMLImport.parse(xml);
+  const warnings = new Set(parsed.warnings || []);
+  const warn = m => warnings.add(m);
+  parsed.score = global.KanadeMusicXmlPost.applyPostCorrections(parsed.score, { warn });
+  parsed.warnings = [...warnings];
+  return parsed;
 }
 
 export function parseScoreFromMusicXml(xml){

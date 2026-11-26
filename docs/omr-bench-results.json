@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-26T09:56:23.722Z",
+  "generatedAt": "2026-11-26T15:47:32.473Z",
   "corpusSize": 15,
   "limit": 15,
   "methods": {
@@ -33,38 +33,74 @@
     },
     "homr_cli": {
       "clean": {
-        "f1": 0.801973581973582,
-        "pitchAcc": 0.8315079365079365,
-        "durationAcc": 0.775952380952381,
-        "precision": 0.8444444444444444,
-        "recall": 0.775952380952381,
+        "f1": 0.8583838383838385,
+        "pitchAcc": 0.8898412698412698,
+        "durationAcc": 0.8342857142857142,
+        "precision": 0.8977777777777777,
+        "recall": 0.8342857142857142,
         "samples": 15
       },
       "phone": {
-        "f1": 0.8050505050505051,
+        "f1": 0.8183838383838383,
         "pitchAcc": 0.8765079365079363,
-        "durationAcc": 0.7809523809523807,
-        "precision": 0.8444444444444443,
-        "recall": 0.7809523809523807,
+        "durationAcc": 0.794285714285714,
+        "precision": 0.8577777777777775,
+        "recall": 0.794285714285714,
         "samples": 15
+      }
+    },
+    "homr_legacy": {
+      "clean": {
+        "f1": 0.8583838383838385,
+        "pitchAcc": 0.8898412698412698,
+        "durationAcc": 0.8342857142857142,
+        "precision": 0.8977777777777777,
+        "recall": 0.8342857142857142,
+        "samples": 15
+      },
+      "phone": {
+        "f1": 0.8482683982683982,
+        "pitchAcc": 0.8819727891156462,
+        "durationAcc": 0.8224489795918367,
+        "precision": 0.8904761904761903,
+        "recall": 0.8224489795918367,
+        "samples": 14
+      }
+    },
+    "homr_multiscale": {
+      "clean": {
+        "f1": 0,
+        "pitchAcc": 0,
+        "durationAcc": 0,
+        "precision": 0,
+        "recall": 0,
+        "samples": 0
+      },
+      "phone": {
+        "f1": 0,
+        "pitchAcc": 0,
+        "durationAcc": 0,
+        "precision": 0,
+        "recall": 0,
+        "samples": 0
       }
     },
     "pc_best_of": {
       "clean": {
-        "f1": 0.8013199872023402,
-        "pitchAcc": 0.8505555555555556,
-        "durationAcc": 0.795,
-        "precision": 0.8244444444444443,
-        "recall": 0.795,
-        "samples": 15
+        "f1": 0,
+        "pitchAcc": 0,
+        "durationAcc": 0,
+        "precision": 0,
+        "recall": 0,
+        "samples": 0
       },
       "phone": {
-        "f1": 0.7865319865319865,
-        "pitchAcc": 0.886031746031746,
-        "durationAcc": 0.7809523809523807,
-        "precision": 0.808080808080808,
-        "recall": 0.7809523809523807,
-        "samples": 15
+        "f1": 0,
+        "pitchAcc": 0,
+        "durationAcc": 0,
+        "precision": 0,
+        "recall": 0,
+        "samples": 0
       }
     },
     "oemer_cli": {
@@ -142,7 +178,18 @@
   },
   "beforeAfter": {
     "phoneF1Delta": 0,
-    "cleanF1Delta": 0
+    "cleanF1Delta": 0,
+    "homrVsBaseline": {
+      "baselineRef": "main@7245c61 (PR #13 import/prep)",
+      "homrCleanF1": 0.8583838383838385,
+      "homrPhoneF1": 0.8183838383838383,
+      "homrCleanDur": 0.8342857142857142,
+      "homrPhoneDur": 0.794285714285714,
+      "baselineHomrCleanF1": 0.801973581973582,
+      "baselineHomrPhoneF1": 0.8050505050505051,
+      "baselineHomrCleanDur": 0.775952380952381,
+      "baselineHomrPhoneDur": 0.7809523809523807
+    }
   },
   "engines": {
     "oemer": "/home/ubuntu/.local/bin/oemer",
@@ -150,6 +197,15 @@
     "audiveris": "/opt/audiveris/bin/Audiveris",
     "prefer": "homr"
   },
+  "errorCategories": {
+    "missed": 13,
+    "duration": 6,
+    "pitch": 2,
+    "extra": 5,
+    "rest": 0,
+    "matched": 109
+  },
+  "corpusTag": "legacy15",
   "successRates": {
     "ground_truth": {
       "sanity": 15,
@@ -165,9 +221,19 @@
       "phone": 15,
       "of": 15
     },
-    "pc_best_of": {
+    "homr_legacy": {
       "clean": 15,
-      "phone": 15,
+      "phone": 14,
+      "of": 15
+    },
+    "homr_multiscale": {
+      "clean": 0,
+      "phone": 0,
+      "of": 15
+    },
+    "pc_best_of": {
+      "clean": 0,
+      "phone": 0,
       "of": 15
     },
     "oemer_cli": {
@@ -220,7 +286,15 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 8,
-      "recognized": 8
+      "recognized": 8,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 8
+      }
     },
     {
       "id": "melody-cmajor",
@@ -235,12 +309,20 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 8,
-      "recognized": 8
+      "recognized": 8,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 8
+      }
     },
     {
       "id": "melody-cmajor",
       "variant": "clean",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 8,
       "fp": 0,
       "fn": 0,
@@ -265,7 +347,15 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 8,
-      "recognized": 8
+      "recognized": 8,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 8
+      }
     },
     {
       "id": "melody-cmajor",
@@ -280,12 +370,20 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 8,
-      "recognized": 8
+      "recognized": 8,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 8
+      }
     },
     {
       "id": "melody-cmajor",
       "variant": "phone",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 8,
       "fp": 0,
       "fn": 0,
@@ -334,12 +432,20 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 3,
-      "recognized": 3
+      "recognized": 3,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 3
+      }
     },
     {
       "id": "dotted-eighth",
       "variant": "clean",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 3,
       "fp": 0,
       "fn": 0,
@@ -373,12 +479,20 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 3,
-      "recognized": 3
+      "recognized": 3,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 3
+      }
     },
     {
       "id": "dotted-eighth",
       "variant": "phone",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 3,
       "fp": 0,
       "fn": 0,
@@ -427,12 +541,20 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 3,
-      "recognized": 3
+      "recognized": 3,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 3
+      }
     },
     {
       "id": "accidentals-g",
       "variant": "clean",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 3,
       "fp": 0,
       "fn": 0,
@@ -466,12 +588,20 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 3,
-      "recognized": 3
+      "recognized": 3,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 3
+      }
     },
     {
       "id": "accidentals-g",
       "variant": "phone",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 3,
       "fp": 0,
       "fn": 0,
@@ -520,12 +650,20 @@
       "pitchAcc": 0.8333333333333334,
       "durationAcc": 0.8333333333333334,
       "sample": 6,
-      "recognized": 5
+      "recognized": 5,
+      "errorCats": {
+        "missed": 1,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 5
+      }
     },
     {
       "id": "3-4-waltz",
       "variant": "clean",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 5,
       "fp": 0,
       "fn": 1,
@@ -559,12 +697,20 @@
       "pitchAcc": 0.8333333333333334,
       "durationAcc": 0.8333333333333334,
       "sample": 6,
-      "recognized": 5
+      "recognized": 5,
+      "errorCats": {
+        "missed": 1,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 5
+      }
     },
     {
       "id": "3-4-waltz",
       "variant": "phone",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 5,
       "fp": 0,
       "fn": 1,
@@ -613,12 +759,20 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 3,
-      "recognized": 3
+      "recognized": 3,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 3
+      }
     },
     {
       "id": "rest-heavy",
       "variant": "clean",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 3,
       "fp": 0,
       "fn": 0,
@@ -652,12 +806,20 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 3,
-      "recognized": 3
+      "recognized": 3,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 3
+      }
     },
     {
       "id": "rest-heavy",
       "variant": "phone",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 3,
       "fp": 0,
       "fn": 0,
@@ -706,12 +868,20 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 6,
-      "recognized": 6
+      "recognized": 6,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 6
+      }
     },
     {
       "id": "chord-triads",
       "variant": "clean",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 6,
       "fp": 0,
       "fn": 0,
@@ -745,12 +915,20 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 6,
-      "recognized": 6
+      "recognized": 6,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 6
+      }
     },
     {
       "id": "chord-triads",
       "variant": "phone",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 6,
       "fp": 0,
       "fn": 0,
@@ -790,31 +968,39 @@
       "id": "sixteenth-run",
       "variant": "clean",
       "method": "homr_cli",
-      "tp": 1,
-      "fp": 4,
-      "fn": 7,
-      "precision": 0.2,
-      "recall": 0.125,
-      "f1": 0.15384615384615385,
-      "pitchAcc": 0.125,
-      "durationAcc": 0.125,
+      "tp": 8,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1,
+      "pitchAcc": 1,
+      "durationAcc": 1,
       "sample": 8,
-      "recognized": 5
+      "recognized": 8,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 8
+      }
     },
     {
       "id": "sixteenth-run",
       "variant": "clean",
-      "method": "pc_best_of",
-      "tp": 1,
-      "fp": 4,
-      "fn": 7,
-      "precision": 0.2,
-      "recall": 0.125,
-      "f1": 0.15384615384615385,
-      "pitchAcc": 0.125,
-      "durationAcc": 0.125,
+      "method": "homr_legacy",
+      "tp": 8,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1,
+      "pitchAcc": 1,
+      "durationAcc": 1,
       "sample": 8,
-      "recognized": 5
+      "recognized": 8
     },
     {
       "id": "sixteenth-run",
@@ -838,22 +1024,24 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 8,
-      "recognized": 8
+      "recognized": 8,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 8
+      }
     },
     {
       "id": "sixteenth-run",
       "variant": "phone",
-      "method": "pc_best_of",
-      "tp": 8,
-      "fp": 0,
-      "fn": 0,
-      "precision": 1,
-      "recall": 1,
-      "f1": 1,
-      "pitchAcc": 1,
-      "durationAcc": 1,
-      "sample": 8,
-      "recognized": 8
+      "method": "homr_legacy",
+      "error": "Found 0 staffs\n/home/ubuntu/.local/lib/python3.12/site-packages/numpy/lib/_function_base_impl.py:588: RuntimeWarning: Mean of empty slice\n  avg = a.mean(axis, **keepdims_kw)\n/home/ubuntu/.local/lib/python3.12/site-packages/numpy/_core/_methods.py:142: RuntimeWarning: invalid value encountered in scalar divide\n  ret = ret.dtype.type(ret / rcount)\nAn error occurred while processing /tmp/kanade-bench-3BvNNG/sixteenth-run-phone.jpg: No staffs found",
+      "f1": 0,
+      "pitchAcc": 0,
+      "durationAcc": 0
     },
     {
       "id": "half-whole",
@@ -892,12 +1080,20 @@
       "pitchAcc": 1,
       "durationAcc": 0.5,
       "sample": 2,
-      "recognized": 3
+      "recognized": 3,
+      "errorCats": {
+        "missed": 0,
+        "duration": 1,
+        "pitch": 0,
+        "extra": 1,
+        "rest": 0,
+        "matched": 1
+      }
     },
     {
       "id": "half-whole",
       "variant": "clean",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 1,
       "fp": 2,
       "fn": 1,
@@ -931,12 +1127,20 @@
       "pitchAcc": 1,
       "durationAcc": 0.5,
       "sample": 2,
-      "recognized": 3
+      "recognized": 3,
+      "errorCats": {
+        "missed": 0,
+        "duration": 1,
+        "pitch": 0,
+        "extra": 1,
+        "rest": 0,
+        "matched": 1
+      }
     },
     {
       "id": "half-whole",
       "variant": "phone",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 1,
       "fp": 2,
       "fn": 1,
@@ -985,12 +1189,20 @@
       "pitchAcc": 0.6666666666666666,
       "durationAcc": 0.6666666666666666,
       "sample": 3,
-      "recognized": 2
+      "recognized": 2,
+      "errorCats": {
+        "missed": 1,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 2
+      }
     },
     {
       "id": "key-change",
       "variant": "clean",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 2,
       "fp": 0,
       "fn": 1,
@@ -1024,12 +1236,20 @@
       "pitchAcc": 0.6666666666666666,
       "durationAcc": 0.6666666666666666,
       "sample": 3,
-      "recognized": 2
+      "recognized": 2,
+      "errorCats": {
+        "missed": 1,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 2
+      }
     },
     {
       "id": "key-change",
       "variant": "phone",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 2,
       "fp": 0,
       "fn": 1,
@@ -1078,12 +1298,20 @@
       "pitchAcc": 0.6666666666666666,
       "durationAcc": 0.6666666666666666,
       "sample": 3,
-      "recognized": 2
+      "recognized": 2,
+      "errorCats": {
+        "missed": 1,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 2
+      }
     },
     {
       "id": "tie-across",
       "variant": "clean",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 2,
       "fp": 0,
       "fn": 1,
@@ -1117,12 +1345,20 @@
       "pitchAcc": 0.6666666666666666,
       "durationAcc": 0.6666666666666666,
       "sample": 3,
-      "recognized": 2
+      "recognized": 2,
+      "errorCats": {
+        "missed": 1,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 2
+      }
     },
     {
       "id": "tie-across",
       "variant": "phone",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 2,
       "fp": 0,
       "fn": 1,
@@ -1162,7 +1398,15 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 7,
-      "recognized": 10
+      "recognized": 10,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 3,
+        "rest": 0,
+        "matched": 7
+      }
     },
     {
       "id": "band-part",
@@ -1177,22 +1421,30 @@
       "pitchAcc": 0.7142857142857143,
       "durationAcc": 0.7142857142857143,
       "sample": 7,
-      "recognized": 5
+      "recognized": 5,
+      "errorCats": {
+        "missed": 2,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 5
+      }
     },
     {
       "id": "band-part",
       "variant": "clean",
-      "method": "pc_best_of",
-      "tp": 7,
-      "fp": 3,
-      "fn": 0,
-      "precision": 0.7,
-      "recall": 1,
-      "f1": 0.8235294117647058,
-      "pitchAcc": 1,
-      "durationAcc": 1,
+      "method": "homr_legacy",
+      "tp": 5,
+      "fp": 0,
+      "fn": 2,
+      "precision": 1,
+      "recall": 0.7142857142857143,
+      "f1": 0.8333333333333333,
+      "pitchAcc": 0.7142857142857143,
+      "durationAcc": 0.7142857142857143,
       "sample": 7,
-      "recognized": 10
+      "recognized": 5
     },
     {
       "id": "band-part",
@@ -1207,7 +1459,15 @@
       "pitchAcc": 0.8571428571428571,
       "durationAcc": 0.7142857142857143,
       "sample": 7,
-      "recognized": 11
+      "recognized": 11,
+      "errorCats": {
+        "missed": 1,
+        "duration": 1,
+        "pitch": 0,
+        "extra": 5,
+        "rest": 0,
+        "matched": 5
+      }
     },
     {
       "id": "band-part",
@@ -1222,22 +1482,30 @@
       "pitchAcc": 0.7142857142857143,
       "durationAcc": 0.7142857142857143,
       "sample": 7,
-      "recognized": 5
+      "recognized": 5,
+      "errorCats": {
+        "missed": 2,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 5
+      }
     },
     {
       "id": "band-part",
       "variant": "phone",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 5,
-      "fp": 6,
+      "fp": 0,
       "fn": 2,
-      "precision": 0.45454545454545453,
+      "precision": 1,
       "recall": 0.7142857142857143,
-      "f1": 0.5555555555555556,
-      "pitchAcc": 0.8571428571428571,
+      "f1": 0.8333333333333333,
+      "pitchAcc": 0.7142857142857143,
       "durationAcc": 0.7142857142857143,
       "sample": 7,
-      "recognized": 11
+      "recognized": 5
     },
     {
       "id": "bass-range",
@@ -1276,12 +1544,20 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 2,
-      "recognized": 2
+      "recognized": 2,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 2
+      }
     },
     {
       "id": "bass-range",
       "variant": "clean",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 2,
       "fp": 0,
       "fn": 0,
@@ -1315,12 +1591,20 @@
       "pitchAcc": 1,
       "durationAcc": 1,
       "sample": 2,
-      "recognized": 2
+      "recognized": 2,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 2
+      }
     },
     {
       "id": "bass-range",
       "variant": "phone",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 2,
       "fp": 0,
       "fn": 0,
@@ -1369,12 +1653,20 @@
       "pitchAcc": 1,
       "durationAcc": 0.6666666666666666,
       "sample": 3,
-      "recognized": 3
+      "recognized": 3,
+      "errorCats": {
+        "missed": 0,
+        "duration": 1,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 2
+      }
     },
     {
       "id": "mixed-durs",
       "variant": "clean",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 2,
       "fp": 1,
       "fn": 1,
@@ -1408,12 +1700,20 @@
       "pitchAcc": 1,
       "durationAcc": 0.6666666666666666,
       "sample": 3,
-      "recognized": 3
+      "recognized": 3,
+      "errorCats": {
+        "missed": 0,
+        "duration": 1,
+        "pitch": 0,
+        "extra": 0,
+        "rest": 0,
+        "matched": 2
+      }
     },
     {
       "id": "mixed-durs",
       "variant": "phone",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 2,
       "fp": 1,
       "fn": 1,
@@ -1462,12 +1762,20 @@
       "pitchAcc": 0.6666666666666666,
       "durationAcc": 0.6666666666666666,
       "sample": 3,
-      "recognized": 3
+      "recognized": 3,
+      "errorCats": {
+        "missed": 1,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 1,
+        "rest": 0,
+        "matched": 2
+      }
     },
     {
       "id": "pickup",
       "variant": "clean",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 2,
       "fp": 1,
       "fn": 1,
@@ -1501,12 +1809,20 @@
       "pitchAcc": 0.6666666666666666,
       "durationAcc": 0.6666666666666666,
       "sample": 3,
-      "recognized": 3
+      "recognized": 3,
+      "errorCats": {
+        "missed": 1,
+        "duration": 0,
+        "pitch": 0,
+        "extra": 1,
+        "rest": 0,
+        "matched": 2
+      }
     },
     {
       "id": "pickup",
       "variant": "phone",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 2,
       "fp": 1,
       "fn": 1,
@@ -1555,12 +1871,20 @@
       "pitchAcc": 0.8,
       "durationAcc": 0.8,
       "sample": 5,
-      "recognized": 5
+      "recognized": 5,
+      "errorCats": {
+        "missed": 0,
+        "duration": 0,
+        "pitch": 1,
+        "extra": 0,
+        "rest": 0,
+        "matched": 4
+      }
     },
     {
       "id": "chromatic",
       "variant": "clean",
-      "method": "pc_best_of",
+      "method": "homr_legacy",
       "tp": 4,
       "fp": 1,
       "fn": 1,
@@ -1585,29 +1909,37 @@
       "id": "chromatic",
       "variant": "phone",
       "method": "homr_cli",
-      "tp": 0,
-      "fp": 5,
-      "fn": 5,
-      "precision": 0,
-      "recall": 0,
-      "f1": 0,
+      "tp": 1,
+      "fp": 4,
+      "fn": 4,
+      "precision": 0.2,
+      "recall": 0.2,
+      "f1": 0.20000000000000004,
       "pitchAcc": 0.6,
-      "durationAcc": 0,
+      "durationAcc": 0.2,
       "sample": 5,
-      "recognized": 5
+      "recognized": 5,
+      "errorCats": {
+        "missed": 1,
+        "duration": 2,
+        "pitch": 1,
+        "extra": 1,
+        "rest": 0,
+        "matched": 1
+      }
     },
     {
       "id": "chromatic",
       "variant": "phone",
-      "method": "pc_best_of",
-      "tp": 0,
-      "fp": 5,
-      "fn": 5,
-      "precision": 0,
-      "recall": 0,
-      "f1": 0,
-      "pitchAcc": 0.6,
-      "durationAcc": 0,
+      "method": "homr_legacy",
+      "tp": 4,
+      "fp": 1,
+      "fn": 1,
+      "precision": 0.8,
+      "recall": 0.8,
+      "f1": 0.8000000000000002,
+      "pitchAcc": 0.8,
+      "durationAcc": 0.8,
       "sample": 5,
       "recognized": 5
     }

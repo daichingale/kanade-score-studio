@@ -5,6 +5,10 @@ import os from 'node:os';
 import { constants as fsConstants } from 'node:fs';
 import { readMusicXmlFile } from './omr-xml-node.mjs';
 import { prepareEngineImage, cleanupPrep } from './omr-engine-prep.mjs';
+import { prepareHomrImage, cleanupHomrPrep, homrScaleVariants } from './omr-homr-prep.mjs';
+import { parseMusicXmlImport } from './omr-xml-node.mjs';
+import { createRequire } from 'node:module';
+const requireC = createRequire(import.meta.url);
 
 export const OMR_BODY_LIMIT = 12 * 1024 * 1024;
 export const OMR_ALLOWED_MIME = new Set([
@@ -98,10 +102,28 @@ async function runOemer(imagePath, workDir) {
   return { musicxml: xml, engine: 'oemer' };
 }
 
-async function runHomr(imagePath) {
+function rankHomrParse(parsed){
+  requireC('../app/web/src/core.js');
+  const C=global.KanadeCore;
+  const score=parsed.score;
+  let full=0;
+  for(let mi=0;mi<score.measures.length;mi++){
+    const cap=C.barTicks(score,mi);
+    const used=C.usedTicks(score.measures[mi]);
+    if(Math.abs(used-cap)<=2)full++;
+  }
+  const notes=score.measures.reduce((n,m)=>n+(m.events?.filter(e=>e.type==='note').length||0),0);
+  return{
+    barFill:full/Math.max(1,score.measures.length),
+    penalty:(parsed.warnings||[]).length,
+    notes
+  };
+}
+
+async function runHomr(imagePath, homrArgs=['--no-title']) {
   const homr = (await detectEngines()).homr;
   if (!homr) throw new Error('homr が見つかりません');
-  await runCommand(homr, [imagePath], { timeoutMs: 600_000 });
+  await runCommand(homr, [...homrArgs, imagePath], { timeoutMs: 600_000 });
   const base = imagePath.replace(/\.[^.]+$/, '');
   const candidates = [`${base}.musicxml`, `${imagePath}.musicxml`];
   for (const xmlPath of candidates) {
@@ -110,6 +132,30 @@ async function runHomr(imagePath) {
     }
   }
   throw new Error('homr が MusicXML を出力しませんでした');
+}
+
+export async function recognizeHomrFile(imagePath, { variant = 'clean', normalized = true, multiscale = false } = {}) {
+  const scales = homrScaleVariants({ multiscale });
+  const candidates = [];
+  for (const scaleMul of scales) {
+    let prepInfo = null;
+    try {
+      let usePath = imagePath;
+      if (normalized) {
+        prepInfo = await prepareHomrImage(imagePath, { scaleMul, variant });
+        usePath = prepInfo.path;
+      }
+      const run = await runHomr(usePath);
+      const parsed = parseMusicXmlImport(run.musicxml);
+      const rank = rankHomrParse(parsed);
+      candidates.push({ musicxml: run.musicxml, engine: 'homr', scaleMul, ...rank });
+    } catch { /* skip scale */ }
+    finally { await cleanupHomrPrep(prepInfo); }
+  }
+  if (!candidates.length) throw new Error('homr がすべてのスケールで失敗しました');
+  candidates.sort((a, b) => b.barFill - a.barFill || a.penalty - b.penalty || b.notes - a.notes);
+  const best = candidates[0];
+  return { musicxml: best.musicxml, engine: 'homr', meta: { scaleMul: best.scaleMul, barFill: best.barFill } };
 }
 
 async function runAudiveris(imagePath, workDir) {
@@ -142,7 +188,7 @@ export async function recognizeOnPc({ bytes, mime, filename, engine = 'auto' }) 
     const safe = (filename || 'scan').replace(/[^\w.\-()+\u3000-\u9fff]/g, '_').slice(0, 80);
     const imagePath = path.join(workDir, safe.endsWith(extForMime(mime)) ? safe : safe + extForMime(mime));
     await writeFile(imagePath, bytes);
-    if (pick === 'homr') return await runHomr(imagePath);
+    if (pick === 'homr') return await recognizeHomrFile(imagePath, { variant: 'clean' });
     if (pick === 'audiveris') return await runAudiveris(imagePath, workDir);
     return await runOemer(imagePath, workDir);
   } finally {
@@ -150,15 +196,18 @@ export async function recognizeOnPc({ bytes, mime, filename, engine = 'auto' }) 
   }
 }
 
-async function runPcEngineOnPath(imagePath, pick, workDir) {
-  if (pick === 'homr') return await runHomr(imagePath);
+async function runPcEngineOnPath(imagePath, pick, workDir, options = {}) {
+  if (pick === 'homr') {
+    if (options.homrLegacy) return await runHomr(imagePath, []);
+    return await recognizeHomrFile(imagePath, { variant: options.variant || 'clean', multiscale: !!options.multiscale, normalized: options.normalized !== false });
+  }
   if (pick === 'audiveris') return await runAudiveris(imagePath, workDir);
   if (pick === 'oemer') return await runOemer(imagePath, workDir);
   throw new Error(`未対応エンジン: ${pick}`);
 }
 
 export async function recognizeImageFile(imagePath, engine = 'auto', options = {}) {
-  const { prep = false, variant = 'clean' } = options;
+  const { prep = false, variant = 'clean', homrLegacy = false, multiscale = false } = options;
   const engines = await detectEngines();
   const pick = engine === 'auto' ? engines.prefer : engine;
   if (!pick || (pick === 'oemer' && !engines.oemer) || (pick === 'homr' && !engines.homr) || (pick === 'audiveris' && !engines.audiveris)) {
@@ -172,7 +221,7 @@ export async function recognizeImageFile(imagePath, engine = 'auto', options = {
       prepInfo = await prepareEngineImage(imagePath, { engine: pick, variant });
       usePath = prepInfo.path;
     }
-    return await runPcEngineOnPath(usePath, pick, workDir);
+    return await runPcEngineOnPath(usePath, pick, workDir, { variant, homrLegacy, multiscale });
   } finally {
     await rm(workDir, { recursive: true, force: true });
     await cleanupPrep(prepInfo);

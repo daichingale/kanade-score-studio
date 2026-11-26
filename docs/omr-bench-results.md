@@ -1,54 +1,74 @@
-# OMR 実測ベンチ（15 譜・Verovio ラスタ 2000px + phone 劣化）
+# OMR 実測ベンチ
 
-再現: `node scripts/omr-bench.mjs --limit=15`  
-詳細: `docs/omr-bench-results.json`（2026-11-26 import/前処理 PR）
+再現: `node scripts/omr-bench.mjs --limit=15`（legacy 15 譜）  
+拡張: `node scripts/omr-bench.mjs --limit=18 --extended --out=docs/omr-bench-results-extended.json`
 
-## 整列の健全性
+詳細 JSON: `docs/omr-bench-results.json`（2026-11-26 homr 認識強化 PR）
 
-| 検査 | F1 | n |
-|------|-----|---|
-| 真値 ↔ 真値 | **100%** | 15 |
+## before → after（homr・legacy 15）
 
-## before → after（homr・取り込み修復後基準）
+基準: **main@7245c61**（PR #13: homr F1 **80.2% / 80.5%**、音価 **77.6% / 78.1%**、15/15）
 
-基準行は **main@4ff62e4**（PR #12 マージ直後: homr **15/15**、F1 clean **80.2%** / phone **80.5%**）。
-
-| 指標 | before（基準） | after（本 PR） | Δ |
-|------|----------------|--------------|---|
+| 指標 | before | after | Δ |
+|------|--------|-------|---|
+| homr F1 clean / phone | 80.2% / 80.5% | **85.8% / 81.8%** | **+5.6 / +1.3 pt** |
+| homr 音価 clean / phone | 77.6% / 78.1% | **83.4% / 79.4%** | **+5.8 / +1.3 pt** |
 | homr 成功 clean / phone | 15 / 15 | 15 / 15 | — |
-| homr F1 clean / phone | 80.2% / 80.5% | **80.2% / 80.5%** | ≈0 |
-| homr 音価 clean / phone | 77.6% / 78.1% | 77.6% / 78.1% | ≈0 |
-| **pc_best_of** F1 clean / phone | — | **80.1% / 78.7%** | — |
-| **pc_best_of 音価 clean** | — | **79.5%** | **+1.9pt** |
-| Audiveris 成功 clean / phone | 2 / 2 | 2 / 2 | — |
-| Audiveris F1 clean / phone（成功分） | 91.2% / 73.5% | 91.2% / **77.8%** | phone +4.3pt |
+| Audiveris 成功 | 2 / 15 | 2 / 15 | — |
+| Audiveris phone F1（成功分） | 77.8% | 77.8% | — |
 
-homr 単体 F1 は homr 出力が同じため横ばい。**音価ノイズ低減**は `pc_best_of`（取り込み修復ペナルティで homr / Audiveris を選択）の clean **音価 79.5%** で確認。Phone 向け **Audiveris のみ** sharp 前処理（アップスケール・コントラスト）。
+## homr 改善の内訳（ablation）
 
-## エンジン別（after）
+| 設定 | clean F1 | phone F1 | 備考 |
+|------|----------|----------|------|
+| **homr_cli**（2.5MP 正規化 + `--no-title` + post-correction） | **85.8%** | **81.8%** | **本番既定** |
+| homr_legacy（生画像・post-correction のみ） | 85.8% | 84.8%（14/15） | phone で一部再現性 |
 
-| エンジン | clean F1 | phone F1 | 成功 |
-|---------|----------|----------|------|
-| **homr** | 80.2% | 80.5% | 15/15 |
-| **pc_best_of** | 80.1% | 78.7% | 15/15 |
-| Audiveris | 91.2%¹ | 77.8%¹ | 2/15 |
-| Kanade v2 | ~0% | ~0% | フォールバック |
-| oemer / ML node | — | — | 別途（PR #12 記載） |
+**post-correction**（`omr-musicxml-post.js`）は XML 取り込み後に全経路で適用。クリーン譜では legacy と同程度だが、**音価ベンチ全体**は post + 2.5MP 入力で音価・F1 が基準より改善。
 
-¹ Audiveris は Verovio 1 行刻譜で **No system** が多い。clean は前処理なし、phone は `scripts/omr-engine-prep.mjs` でアップスケール。
+**マルチスケール homr**（0.96/1/1.04 × 3 回）は 15 譜フルでは未計測（`--homr-ms` で有効）。3 倍遅延のため既定オフ。
 
-## 本 PR の変更と計測への影響
+## homr 残差の内訳（clean、F1 未達イベント分類）
 
-| 変更 | 内容 | ベンチ上の効果 |
-|------|------|----------------|
-| MusicXML | 主メロディ声部の自動選択、末尾切り詰めより音価調整 | homr F1 ほぼ不変（修復ログは減少方向） |
-| `pc_best_of` | homr + Audiveris、import 警告ペナルティで選択 | clean **音価 +1.9pt** |
-| phone 前処理 | Audiveris 向けのみ（homr は RAW JPEG） | Audiveris phone F1 上昇、homr は維持 |
-| Audiveris upscale | clean では過大リサイズを避け 2/15 維持 | clean 0/15 化を回避 |
+| 種別 | 件数（15 譜×clean 集計） |
+|------|--------------------------|
+| 一致 | 109 |
+| **見逃し** | **13** |
+| **音価不一致** | **6** |
+| **音高不一致** | **2** |
+| 余分検出 | 5 |
+
+優先: 見逃し・付点/休符/音価 → 今後のリズム prior / beam 整合。
+
+## 拡張コーパス（`--extended`、18 譜）
+
+Verovio **2〜3 段組**（フルート+チューバ、クラリネット+ホルン、ピアノ大譜表）を 3 譜追加。
+
+| homr_cli | clean | phone |
+|----------|-------|-------|
+| F1 / 音価 | **84.0% / 86.2%** | **82.7% / 82.9%** |
+| 成功 | 18 / 18 | 18 / 18 |
+
+多段組を含むと F1 は legacy 15 のみより **約 1.8pt 低下**（段組・ホルン移調などが難所）。JSON: `docs/omr-bench-results-extended.json`。
+
+## 他エンジン調査（簡潔）
+
+| 候補 | ライセンス | 本リポでの扱い |
+|------|-----------|----------------|
+| **homr** | AGPL-3.0 | PC 既定・今回強化 |
+| Audiveris | GPLv2 | 2/15 成功率・phone 前処理で F1 維持 |
+| oemer ONNX | MIT | ORT ConvTranspose 未解決 |
+| ihy / TrOMR 系 | 各種 | homr 内蔵 TrOMR が実質 SOTA クラス；別経路の組み込みは AGPL 境界が重いため未統合 |
+
+## 主な実装
+
+- `scripts/omr-homr-prep.mjs` — ~2.5MP スケール正規化（homr 文献どおり）
+- `omr-musicxml-post.js` — 調号整合・小節リズム snap・タイ推定
+- `omr-align.js` `categorize()` — ベンチ誤差分類
+- Audiveris: 低解像度 clean 画像のみ段階 upscale
 
 ## 既知の限界
 
-- **homr F1**: OMR モデル出力が支配的で、取り込み改善だけでは F1 を大きく動かしにくい。
-- **pc_best_of phone**: Audiveris 失敗谱が多く、ペナルティ選択が homr 単体より F1 を下げる場合あり。
-- **Audiveris**: 成功率 2/15 のまま（画像レイアウト依存）。
-- **多声部**: 第1声部＋必要なら第2声部のみ保持。
+- Audiveris **2/15**（単行刻譜以外は系統検出失敗が多い）
+- phone で homr 2.5MP 正規化は legacy より F1 が下がる譜があり（sharp 前処理は homr 向け無効化を維持）
+- 真のマルチページ吹奏楽スキャンは未計測（Verovio 合成のみ）
