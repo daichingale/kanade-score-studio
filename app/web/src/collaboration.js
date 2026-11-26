@@ -26,7 +26,7 @@
   $('collabCreate').hidden=!!room;$('collabJoin').hidden=!!room;$('collabInvite').readOnly=!!room;$('collabLeave').hidden=!room;$('collabCopy').hidden=!room;
   $('collabRotate').hidden=!room?.owner;$('collabEnd').hidden=!room?.owner;$('collabConflict').hidden=!conflict;
   $('collabBadge').hidden=!room;$('collabBadge').textContent=room?(conflict?'同期を確認':connected?'共同編集':'再接続中'):'';
-  for(const id of ['newBtn','demoBtn','openBtn','importFile'])$(id).disabled=!!room;
+  for(const id of ['newBtn','demoBtn','openBtn','importFile','fileMenuImport','mobileImportOpen','importCameraBtn','importGalleryBtn','importScoreFileBtn'])$(id).disabled=!!room;
   $('collabSaveLocal').hidden=!room;$('collabPartBar').hidden=!shared?.bassPart;$('collabPreview').hidden=!shared?.bassPart;
   $('collabBadge').title=$('collabStatus').textContent;
   for(const id of ['titleInput','composerInput','timeSelect','keySelect','tempoInput']){

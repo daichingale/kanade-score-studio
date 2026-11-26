@@ -958,3 +958,11 @@
 }
 
 .verovio-pages{display:flex;flex-direction:column;gap:18px}.verovio-pages svg{width:100%;height:auto;background:#fff;max-width:100%}#scoreHost[data-renderer="verovio"] [data-event-id]{cursor:pointer}#scoreHost[data-renderer="verovio"].placing{cursor:crosshair}[data-verovio-toggle][data-busy="1"]{opacity:.7}
+.score-import-chooser .import-choice-grid{display:grid;gap:10px;margin:12px 0}
+.import-choice{width:100%;text-align:left;padding:14px 16px;border:1px solid var(--border);border-radius:10px;background:#f7fbff;font-weight:650}
+.score-omr-canvas{width:100%;max-height:42vh;border:1px solid var(--border);border-radius:8px;background:#fff}
+.score-omr-notes,.score-omr-warnings{margin:8px 0;padding-left:1.1rem;font-size:12px;line-height:1.5;color:#4a6077}
+.score-omr-notes li{margin:6px 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.mobile-import-lead{margin:4px 8px 8px;font-size:11px;line-height:1.5;color:#5e738a}
+.mobile-import{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+@media screen and (max-width:760px){.score-import-chooser,.score-omr-dialog{width:min(100vw - 16px,520px)}}
