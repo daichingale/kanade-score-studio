@@ -5,7 +5,7 @@
   const defaultTrack={level:100,pan:0,mute:false,solo:false};
   function setup(api){
     const {sound}=api,dialog=$('mixDialog'),host=$('mixTracks');
-    let project=null,mix=null,trackSignature='',request=null,last=null,paused=false,launching=false,latestDoc=null,refreshFrame=0,revision=0,controlSignature='';
+    let project=null,mix=null,trackSignature='',request=null,last=null,paused=false,launching=false,latestDoc=null,refreshFrame=0,revision=0,controlSignature='',clickTrack=null;
     const mastering=$('mixMastering'),masterFields={gain:'mixDrive',low:'mixLow',high:'mixHigh',ceiling:'mixCeiling'};
     let meterTimer=0;
     const db=value=>value<0?'−'+Math.abs(value):value>0?'+'+value:'0';
@@ -160,24 +160,41 @@
       api.progress(position,{follow:$('mixFollow').checked&&!request?.loop,loop:!!request?.loop});
       renderControls();
     }
-    function launch(next,resumeAt){
+    function metronome(){
+      if(!$('mixMetronome')?.checked)return null;
+      if(!clickTrack)clickTrack=new root.KanadeMetronome.ClickTrack(()=>sound.ready());
+      return clickTrack;
+    }
+    async function launch(next,resumeAt){
       try{
         api.beforePlay();
         const prepared=performance(next);
+        const tempo=api.tempo?.()||100;
+        const countIn=Math.max(0,Math.min(8,Number($('mixCountIn')?.value||0)));
+        const metro=metronome();
         request=next;paused=false;latestDoc=api.document();launching=true;revision=0;
-        sound.play(prepared.tracks,{...prepared.options,resumeAt,onProgress:progress}).catch(error=>{
+        if(countIn>0){
+          if(!metro)throw Error('メトロノームを開始できません');
+          const ok=await metro.countIn(countIn,tempo,(beat,total)=>{
+            const message=`カウント ${beat} / ${total}`;
+            for(const out of document.querySelectorAll('[data-transport-position]'))if(out.textContent!==message)out.textContent=message;
+          });
+          if(!ok){launching=false;renderControls();return;}
+        }
+        const withMetro=$('mixMetronome')?.checked?{metronome:{enabled:true,tempo}}:null;
+        sound.play(prepared.tracks,{...prepared.options,resumeAt,onProgress:progress,...withMetro}).catch(error=>{
           if(request===next){request=null;last=null;paused=false;api.clearProgress();renderControls();}
           api.error(error.message);
         });
         launching=false;
         renderControls();
-      }catch(error){api.error(error.message);}
+      }catch(error){launching=false;api.error(error.message);}
     }
     function clear(){
       request=null;paused=false;last=null;latestDoc=null;cancelAnimationFrame(refreshFrame);refreshFrame=0;
       api.clearProgress();renderControls();
     }
-    function stop(){clear();sound.stop();}
+    function stop(){clickTrack?.stop();clear();sound.stop();}
     function playing(value){
       if(!value&&!launching&&!paused&&request)clear();
       else if(!launching)renderControls();
