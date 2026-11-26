@@ -42,7 +42,7 @@
   function musicXmlToRecognition(musicxml,{method='pc'}={}){
     const parser=root.KanadeMusicXMLImport||null;
     if(!parser)throw Error('MusicXML モジュールが未読込です');
-    const {score}=parser.parse(musicxml);
+    const {score,warnings:importWarnings=[]}=parser.parse(musicxml);
     const notes=root.KanadeOmrFixture.groundTruth(score).map(item=>({
       tick:item.tick+(item.mi||0)*root.KanadeCore.TPQ*4,
       pitch:item.pitch,
@@ -57,7 +57,8 @@
       bitmap:{width:1,height:1,data:new Uint8Array([0]),ink:0},
       scoreDraft:score,
       warnings:[
-        method==='pc'?'PC 上の Audiveris / homr による高精度読み取り結果です。':'MusicXML から読み込みました。'
+        method==='pc'?'PC 上の homr / Audiveris による高精度読み取り結果です。':'MusicXML から読み込みました。',
+        ...importWarnings
       ],
       method
     };

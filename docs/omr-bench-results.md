@@ -1,7 +1,7 @@
 # OMR 実測ベンチ（15 譜・Verovio ラスタ 2000px + phone 劣化）
 
 再現: `node scripts/omr-bench.mjs --limit=15`  
-詳細: `docs/omr-bench-results.json`（2026-11-26 マージ版）
+詳細: `docs/omr-bench-results.json`（2026-11-26 第2ラウンド・MusicXML 取り込み修復後）
 
 ## 整列の健全性
 
@@ -9,19 +9,30 @@
 |------|-----|------|------|---|
 | 真値 ↔ 真値（ground_truth） | **100%** | 100% | 100% | 15 |
 
-## エンジン別（成功サンプル上の平均）
+## homr 取り込み修復 — before / after
 
-| エンジン | clean F1 | clean 音高 | clean 音価 | phone F1 | phone 音高 | phone 音価 | 成功数/15 |
-|---------|----------|-----------|-----------|----------|-----------|-----------|-----------|
-| **homr**（PC 既定） | **97.5%** | 97.5% | 97.5% | **100%** | 100% | 100% | 8 / 8 |
-| **Audiveris** | **100%**¹ | 100% | 100% | 78.6% | 85.7% | 78.6% | 2 / 2 |
-| Kanade v2（solver 前） | 0%² | 0% | 0% | 0% | 7.8% | 0% | 6 / 15 clean |
-| Kanade v2（solver 後） | 0%² | 0% | 0% | 0% | 7.8% | 0% | 同上 |
-| oemer CLI | — | — | — | — | — | — | 0（ORT ConvTranspose） |
-| ML（onnxruntime-node） | — | — | — | — | — | — | 未計測（別 run） |
+MusicXML が homr で生成できても、従来は Kanade の `validateScore` などで **7/15 が throw** しベンチ集計外だった。  
+`musicxml-import.js` の修復（backup/forward・多声部統合・拍超過/不足の休符補正・警告のみ）後に再計測。
 
-¹ Audiveris は Verovio の小さな 1 行カット譜で **No system found** が多く、成功 2 譜のみ集計。  
-² clean で一部譜が五線未検出（6/15）。以前の ~1.2% F1 は小サンプル時の値；今回も実質 0% 帯。
+| 指標 | 修復前（成功分のみ） | 修復後（全 15 譜） |
+|------|----------------------|---------------------|
+| **成功数 clean / phone** | **8 / 15** | **15 / 15** |
+| **F1 clean** | **97.5%** | **80.2%** |
+| **F1 phone** | **100%** | **80.5%** |
+| 音高 clean / phone | 97.5% / 100% | 83.2% / 87.7% |
+| 音価 clean / phone | 97.5% / 100% | 77.6% / 78.1% |
+
+※ 修復後の F1 は「取り込みは通るが修復で音価がずれた譜」も含む全件平均。成功 8 件だけなら従来どおり高 F1。
+
+## エンジン別（現行ベンチ）
+
+| エンジン | clean F1 | phone F1 | 成功 clean/phone | 備考 |
+|---------|----------|----------|------------------|------|
+| **homr**（PC 既定） | **80.2%** | **80.5%** | **15 / 15** | 取り込み 100% 通過 |
+| **Audiveris** | 91.2% | 73.5% | 2 / 2 | 小 PNG で No system が多い |
+| Kanade v2（solver 前/後） | 0% | 0% | 6 / 15 clean | phone は音高のみ ~7.8% |
+| oemer CLI | — | — | 0 / 0 | ORT ConvTranspose（下記） |
+| ML（onnxruntime-node） | 0% | 0% | 15 / 15 | セッション起動可・後段 F1 未達 |
 
 ## アプリ既定（この PR）
 
@@ -40,7 +51,8 @@ homr は **AGPL-3.0** のためサーバー経由利用を推奨（モデル約 
 
 ## 既知の限界
 
-- oemer: 公開 ONNX × ORT 1.32 で推論失敗（VM 実測）。
-- Audiveris: 刻譜 PNG の高さが低いと系統検出失敗しやすい。
-- homr: 7/15 は MusicXML 取り込み検証（声部の拍超過など）でベンチ集計外。
-- v2: 刻譜ラスタ向けには精度不足（フォールバック専用）。
+- **oemer CLI**: `unet_big.onnx` の `ConvTranspose` が ORT 1.32 の shape inference と非互換。Python で `SessionOptions.graph_optimization_level = ORT_DISABLE_ALL` なら**モデル単体はロード可能**だが、**pip の `oemer` CLI は SessionOptions 未設定**のため依然失敗。`ORT_DISABLE_ALL=1` 環境変数も CLI では効かず（VM 確認）。再エクスポートか upstream パッチが必要。
+- **端末 ML**: `omr-ml-node.mjs` / `omr-ml-worker.js` は `graphOptimizationLevel: 'disabled'` でセッション作成まで成功するが、ベンチ上の認識 F1 は 0%（後処理・ラベル変換が未完成に近い）。
+- **Audiveris**: 刻譜 PNG の高さが低いと系統検出失敗しやすい。
+- **homr 取り込み**: 第1声部へマージするため、二部以上の譜はベンチ整列で音価ノイズが乗ることがある（レビュー画面に import 警告を表示）。
+- **v2**: 刻譜ラスタ向けには精度不足（フォールバック専用）。

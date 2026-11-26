@@ -240,6 +240,19 @@ async function main(){
     phoneF1Delta: summary.methods.v2_after?.phone?.f1 - summary.methods.v2_before?.phone?.f1,
     cleanF1Delta: summary.methods.v2_after?.clean?.f1 - summary.methods.v2_before?.clean?.f1
   };
+  summary.successRates = {};
+  const corpusN = corpus.length;
+  for (const method of methodNames) {
+    if (method === 'ground_truth') {
+      summary.successRates[method] = { sanity: rows.filter(r => r.method === method && !r.error).length, of: corpusN };
+      continue;
+    }
+    summary.successRates[method] = {
+      clean: rows.filter(r => r.method === method && r.variant === 'clean' && !r.error).length,
+      phone: rows.filter(r => r.method === method && r.variant === 'phone' && !r.error).length,
+      of: corpusN
+    };
+  }
   summary.rows = rows;
   fs.writeFileSync(outPath, JSON.stringify(summary, null, 2));
   console.log(JSON.stringify({ outPath, methods: summary.methods, beforeAfter: summary.beforeAfter }, null, 2));

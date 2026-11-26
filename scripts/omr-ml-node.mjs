@@ -73,8 +73,9 @@ export async function recognizeMlNode(imageData){
   const ort = (await import('onnxruntime-node')).default;
   boot();
   const models = await ensureModels();
-  const unet = await ort.InferenceSession.create(models.unet_big);
-  const seg = await ort.InferenceSession.create(models.seg_net);
+  const sessionOpts = { executionProviders: ['cpu'], graphOptimizationLevel: 'disabled' };
+  const unet = await ort.InferenceSession.create(models.unet_big, sessionOpts);
+  const seg = await ort.InferenceSession.create(models.seg_net, sessionOpts);
   const staffIn = imageTensorFromRGBA(imageData, 256);
   const segIn = imageTensorFromRGBA(imageData, 288);
   const staffTensor = await unet.run({ [unet.inputNames[0]]: new ort.Tensor('uint8', staffIn.data, [1, 256, 256, 3]) });

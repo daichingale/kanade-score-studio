@@ -86,7 +86,7 @@ function extForMime(mime) {
 }
 
 async function runOemer(imagePath, workDir) {
-  const onnxOnly = { ...process.env, CUDA_VISIBLE_DEVICES: '' };
+  const onnxOnly = { ...process.env, CUDA_VISIBLE_DEVICES: '', ORT_DISABLE_ALL: '1' };
   await runCommand('oemer', [imagePath, '-o', workDir], { cwd: workDir, env: onnxOnly });
   const { readdir } = await import('node:fs/promises');
   const files = await readdir(workDir);

@@ -44,7 +44,10 @@ HOST=0.0.0.0 npm run dev
 
 - チェックポイント: [oemer releases/checkpoints](https://github.com/BreezeWhite/oemer/releases/tag/checkpoints)（MIT）
 - ブラウザ: `onnxruntime-web` + `omr-ml-worker.js`
-- **既知問題**: 公開 ONNX が ORT 1.20+ の `ConvTranspose` 検証と衝突する環境あり。Node ベンチは NHWC `uint8` 256/288 で推論可能だが、後処理は homr/Audiveris より劣る。
+- **既知問題（2026-11-26）**
+  - 公開 `unet_big.onnx` は ORT 1.32 で `ConvTranspose` の shape inference エラー。**`graphOptimizationLevel: 'disabled'`**（Node / WASM ともに設定済み）ならセッション作成までは通る。
+  - **oemer CLI** は内部が最適化 ON のままのため、本 VM では 0/15 失敗。`ORT_DISABLE_ALL=1` も CLI には効かない（`oemer` 側が `SessionOptions` を渡していない）。
+  - ベンチの `ml_node` は 15/15 パイプライン成功だが F1 は 0% — ラスタ→イベント後段は homr には劣る。
 
 ## ベンチマーク
 
