@@ -7,20 +7,24 @@
   const Glyphs=()=>root.KanadeOmrGlyphs;
   const Priors=()=>root.KanadeOmrPriors;
 
-  function recognizeRGBA(imageData,{cropRect=null,time=null}={}){
+  function recognizeRGBA(imageData,{cropRect=null,time=null,solver=true}={}){
     deps();
-    let gray=Img().bitmapFromRGBA(imageData);
-    gray=Img().contrast(gray,1.25);
-    let binary=Img().sauvola(gray,{window:Math.max(15,Math.round(imageData.width/28)|1)});
+  const prep=root.KanadeOmrPreprocess?.prepare(imageData)||null;
+    let gray=prep?.gray||Img().bitmapFromRGBA(imageData);
+    let binary=prep?.binary||Img().sauvola(Img().contrast(gray,1.25),{window:Math.max(15,Math.round(imageData.width/28)|1)});
     if(cropRect)binary=crop(binary,cropRect);
-    binary=Img().deskew(binary);
-    binary=Img().perspective(binary);
+    if(!prep){binary=Img().deskew(binary);binary=Img().perspective(binary);}
     let staff;
     try{staff=Staff().staffLines(binary);}
     catch{
-      binary=Img().binarizeGlobal(gray);
+      binary=prep?.engraved||Img().binarizeEngraved(gray);
       binary=Img().deskew(binary,[-4,-2,0,2,4]);
-      staff=Staff().staffLines(binary);
+      try{staff=Staff().staffLines(binary);}
+      catch{
+        binary=Img().binarizeGlobal(gray);
+        binary=Img().deskew(binary,[-4,-2,0,2,4]);
+        staff=Staff().staffLines(binary);
+      }
     }
     const bars=Staff().barLines(binary,staff);
     const slices=Staff().measureSlices(bars,binary.width);
@@ -71,7 +75,14 @@
     const key=Priors().inferKey(notes.filter(n=>!n.rest));
     const snapped=Priors().snapNotes(notes.filter(n=>!n.rest),key);
     const meter=time||{num:4,den:4};
-    const quantized=Priors().quantizeBarDurations(snapped,meter);
+    let quantized=Priors().quantizeBarDurations(snapped,meter);
+    if(solver&&root.KanadeOmrSolver){
+      const withMi=quantized.map(note=>{
+        const barTicks=C.TPQ*meter.num*(4/meter.den);
+        return {...note,mi:Math.floor((note.tick||0)/barTicks),tick:(note.tick||0)%barTicks};
+      });
+      quantized=root.KanadeOmrSolver.correct(withMi,{time:meter,key,instrument:'melody'});
+    }
     const mlNote=root.KanadeOmrMl?.status;
     return {
       notes:quantized,

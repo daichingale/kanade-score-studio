@@ -597,7 +597,7 @@
       <button type="button" id="importGalleryBtn" class="import-choice">🖼 写真・PDFを選ぶ</button>
       <button type="button" id="importScoreFileBtn" class="import-choice">📄 ファイル（MusicXML / MXL / MIDI / Kanade）</button>
     </div>
-    <p class="panel-hint">写真の読み取りは自動で「PC エンジン → 端末高精度（oemer ONNX 約104MB DL）→ 簡易」の順を試します。開発 PC は <code>HOST=0.0.0.0 npm run dev</code> で LAN 公開できます。</p>
+    <p class="panel-hint">写真の読み取りは自動で「PC（Audiveris / homr）→ 端末 ML（oemer ONNX 約104MB）→ 簡易 v2」の順です。PC 側は <code>HOST=0.0.0.0 npm run dev</code> と Audiveris または <code>pip install homr</code> が必要です。</p>
     <form method="dialog" class="file-dialog-actions"><button type="submit" id="importHubClose">閉じる</button></form>
   </dialog>
   <dialog id="scoreOmrDialog" class="settings-panel score-omr-dialog" aria-labelledby="scoreOmrHeading">

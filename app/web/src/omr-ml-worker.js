@@ -39,7 +39,7 @@ function argmaxLabels(tensor){
 }
 
 async function runSession(buffer,tensor,size){
-  const session=await ort.InferenceSession.create(buffer,{executionProviders:['wasm']});
+  const session=await ort.InferenceSession.create(buffer,{executionProviders:['wasm'],graphOptimizationLevel:'disabled'});
   const inputName=session.inputNames[0];
   const feeds={[inputName]:new ort.Tensor('float32',tensor,[1,3,size,size])};
   const output=await session.run(feeds);

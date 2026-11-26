@@ -8,6 +8,7 @@ export async function handleOmrHttp(req, res, requestUrl, deps) {
     sendJson(res, 200, {
       ok: true,
       oemer: Boolean(engines.oemer),
+      homr: Boolean(engines.homr),
       audiveris: Boolean(engines.audiveris),
       prefer: engines.prefer,
       maxBytes: OMR_BODY_LIMIT

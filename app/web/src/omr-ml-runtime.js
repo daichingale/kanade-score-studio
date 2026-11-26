@@ -48,6 +48,12 @@
       unet_big:models.unet_big,
       seg_net:models.seg_net
     }});
+    if(root.KanadeOmrMlPost){
+      return root.KanadeOmrMlPost.recognizeFromMlSeg(imageData,{
+        staffMask:result.staff,
+        segMask:result.seg
+      });
+    }
     return root.KanadeOmrMlMasks.recognizeFromMlOutputs(imageData,{
       staffLogits:result.staff.data,
       segLogits:result.seg.data,

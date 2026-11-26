@@ -45,9 +45,14 @@
       loadScript('src/omr-pc-client.js'),
       loadScript('src/omr-router.js'),
       loadScript('src/omr-pdf.js'),
+      loadScript('src/omr-preprocess.js'),
+      loadScript('src/omr-solver.js'),
+      loadScript('src/omr-align.js'),
+      loadScript('src/omr-ml-post.js'),
       loadScript('src/omr-recognize.js'),
       loadScript('src/omr-fixture-render.js'),
-      loadScript('src/omr-eval.js')
+      loadScript('src/omr-eval.js'),
+      loadScript('src/omr-review-ai.js')
     ]);
     omrLoaded=true;
   }
@@ -162,14 +167,17 @@
       }
       ctx.putImageData(img,0,0);
       for(const note of notes){
-        ctx.strokeStyle='#e24b4b';
+        const low=note.low||((note.confidence??1)<0.72);
+        ctx.strokeStyle=low?'#d9a400':'#e24b4b';
         ctx.lineWidth=2;
         ctx.strokeRect(note.x-4,note.y-4,8,8);
       }
       list.replaceChildren(...notes.map((note,index)=>{
         const row=document.createElement('li');
         const pitch=CeventLabel(note.pitch);
-        row.innerHTML=`<label><input type="checkbox" data-omr-index="${index}" checked> ${pitch} · ${note.den}分</label>
+        const low=note.low||((note.confidence??1)<0.72);
+        row.className=low?'score-omr-note-low':'';
+        row.innerHTML=`<label><input type="checkbox" data-omr-index="${index}" checked> ${low?'⚠ ':''}${pitch} · ${note.den}分${note.dots?` 付点${note.dots}`:''}</label>
           <button type="button" data-omr-shift="${index}" data-dir="-1">♭1</button>
           <button type="button" data-omr-shift="${index}" data-dir="1">♯1</button>`;
         return row;
