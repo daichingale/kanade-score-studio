@@ -3146,12 +3146,15 @@
     return Spark.harmonyContext(canonicalPart(),caret.mi,timeline);
   }
   let sparkOllamaReady=false;
+  let sparkModelNames=[];
   function sparkJudgeModel(){
+    const Agent=window.KanadeAgent;
+    let saved='';
     try{
       const raw=JSON.parse(localStorage.getItem('kanade.agent.chat.v1')||'null');
-      if(raw?.model)return raw.model;
+      if(raw?.model)saved=raw.model;
     }catch{}
-    return 'qwen2.5:3b';
+    return Agent?.pickModel(sparkModelNames,saved)||Agent?.DEFAULT_MODEL||'qwen2.5:7b';
   }
   async function refreshSparkAiJudge(){
     const Agent=window.KanadeAgent,toggle=$('sparkAiJudge');
@@ -3162,7 +3165,8 @@
       const {response}=await Agent.fetchTags({signal:AbortSignal.timeout(3500)});
       if(response.ok){
         const data=await response.json();
-        sparkOllamaReady=(Agent.modelNames(data)||[]).length>0;
+        sparkModelNames=Agent.modelNames(data)||[];
+        sparkOllamaReady=sparkModelNames.length>0;
         toggle.disabled=!sparkOllamaReady;
         if(sparkOllamaReady)toggle.checked=saved?.on!==false;
         $('sparkAiStatus').textContent=sparkOllamaReady?'AI審査: 待機':'AI審査: オフ';

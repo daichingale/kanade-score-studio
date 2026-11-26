@@ -51,6 +51,69 @@ test('chat messages prepend the prompt and summary without rewriting history',()
  assert.equal(payload.tools,undefined);
 });
 
+test('proxy responses count as usable only for ok, auth errors, and ollama-unavailable',()=>{
+ assert.equal(Agent.acceptProxyResponse({ok:true,status:200}),true);
+ assert.equal(Agent.acceptProxyResponse({ok:false,status:401}),true);
+ assert.equal(Agent.acceptProxyResponse({ok:false,status:403}),true);
+ assert.equal(Agent.acceptProxyResponse({ok:false,status:503}),true);
+ assert.equal(Agent.acceptProxyResponse({ok:false,status:404}),false);
+ assert.equal(Agent.acceptProxyResponse({ok:false,status:405}),false);
+});
+
+test('postChat falls back from GitHub Pages proxy 405 to direct Ollama and reuses tags transport',async()=>{
+ const calls=[];
+ const original=globalThis.fetch;
+ Agent.resetOllamaTransport();
+ delete globalThis.__KANADE_DEV__;
+ try{
+  globalThis.fetch=async(url,init)=>{
+   calls.push({url,method:init?.method||'GET'});
+   if(String(url).includes('/__agent/tags'))return {ok:false,status:405};
+   if(String(url).includes('/api/tags'))return {ok:true,status:200,json:async()=>({models:[{name:'qwen2.5:7b'}]})};
+   if(String(url).includes('/__agent/chat'))return {ok:false,status:405};
+   if(String(url).includes('/api/chat'))return {ok:true,status:200,body:null};
+   throw new Error(`unexpected fetch ${url}`);
+  };
+  const tags=await Agent.fetchTags({});
+  assert.equal(tags.mode,'direct');
+  const chat=await Agent.postChat({model:'qwen2.5:7b',messages:[]},{});
+  assert.equal(chat.ok,true);
+  const chatUrls=calls.filter(c=>c.method==='POST').map(c=>c.url);
+  assert.equal(chatUrls.length,1);
+  assert.match(chatUrls[0],/127\.0\.0\.1:11434\/api\/chat/);
+  assert.doesNotMatch(chatUrls.join(' '),/\/__agent\/chat/);
+  await Agent.fetchTags({});
+  calls.length=0;
+  await Agent.postChat({model:'qwen2.5:7b',messages:[]},{});
+  assert.equal(calls.length,1);
+  assert.match(calls[0].url,/api\/chat/);
+ }finally{
+  globalThis.fetch=original;
+  Agent.resetOllamaTransport();
+ }
+});
+
+test('postChat uses dev proxy only when __KANADE_DEV__ is set',async()=>{
+ const calls=[];
+ const original=globalThis.fetch;
+ Agent.resetOllamaTransport();
+ globalThis.__KANADE_DEV__=true;
+ try{
+  globalThis.fetch=async(url,init)=>{
+   calls.push({url,method:init?.method||'GET'});
+   if(String(url).includes('/__agent/chat'))return {ok:true,status:200};
+   throw new Error(`unexpected fetch ${url}`);
+  };
+  await Agent.postChat({model:'x',messages:[]},{});
+  assert.equal(calls.length,1);
+  assert.match(calls[0].url,/\/__agent\/chat/);
+ }finally{
+  globalThis.fetch=original;
+  delete globalThis.__KANADE_DEV__;
+  Agent.resetOllamaTransport();
+ }
+});
+
 test('model choice prefers a saved model, then Qwen, and explains a missing Ollama',()=>{
  assert.equal(Agent.pickModel(['llama3.1:8b','qwen2.5:3b'],''),'qwen2.5:3b');
  assert.equal(Agent.pickModel(['qwen2.5:3b','qwen2.5:7b'],'qwen2.5:3b'),'qwen2.5:3b');

@@ -179,6 +179,11 @@
   return names.find(name=>/qwen/i.test(name))||names[0]||'';
  }
  const OLLAMA_ORIGIN='http://127.0.0.1:11434';
+ let ollamaTransport=null;
+ function acceptProxyResponse(response){
+  return response.ok||response.status===401||response.status===403||response.status===503;
+ }
+ function resetOllamaTransport(){ollamaTransport=null;}
  function appPath(path){
   return root.KanadePath?.resolve(path)||path;
  }
@@ -205,15 +210,17 @@
   const proxy=appPath('/__agent/tags');
   if(root.__KANADE_DEV__){
    const response=await fetch(proxy,{...init,cache:'no-store'});
+   ollamaTransport='proxy';
    return {response,mode:'proxy'};
   }
   try{
    const response=await fetch(proxy,{...init,cache:'no-store'});
-   if(response.ok||response.status===401||response.status===403||response.status===503)return {response,mode:'proxy'};
+   if(acceptProxyResponse(response)){ollamaTransport='proxy';return {response,mode:'proxy'};}
   }catch{/* static host: no dev proxy */}
   try{
    const response=await fetch(`${OLLAMA_ORIGIN}/api/tags`,{...init,cache:'no-store',mode:'cors'});
-    return {response,mode:'direct'};
+   ollamaTransport='direct';
+   return {response,mode:'direct'};
   }catch(error){
    const failure=new Error(error.message||'fetch failed');
    failure.cors=true;
@@ -224,14 +231,24 @@
   const proxy=appPath('/__agent/chat');
   const body=JSON.stringify(payload);
   const headers={'Content-Type':'application/json',...(init?.headers||{})};
-  if(root.__KANADE_DEV__){
-   return fetch(proxy,{...init,method:'POST',headers,body,cache:'no-store'});
+  const viaProxy=()=>fetch(proxy,{...init,method:'POST',headers,body,cache:'no-store'});
+  const viaDirect=()=>fetch(`${OLLAMA_ORIGIN}/api/chat`,{...init,method:'POST',headers,body,cache:'no-store',mode:'cors'});
+  if(root.__KANADE_DEV__)return viaProxy();
+  if(ollamaTransport==='direct')return viaDirect();
+  if(ollamaTransport==='proxy'){
+   try{
+    const response=await viaProxy();
+    if(acceptProxyResponse(response))return response;
+   }catch{/* proxy gone */}
+   ollamaTransport='direct';
+   return viaDirect();
   }
   try{
-   const response=await fetch(proxy,{...init,method:'POST',headers,body,cache:'no-store'});
-   if(response.ok||response.status>=400&&response.status!==404)return response;
+   const response=await viaProxy();
+   if(acceptProxyResponse(response)){ollamaTransport='proxy';return response;}
   }catch{/* static host */}
-  return fetch(`${OLLAMA_ORIGIN}/api/chat`,{...init,method:'POST',headers,body,cache:'no-store',mode:'cors'});
+  ollamaTransport='direct';
+  return viaDirect();
  }
  function readNdjson(buffer,{flush=false}={}){
   let source=String(buffer??'');
@@ -363,5 +380,5 @@
   undo(count){if(!host?.undoAi)throw new Error('取り消せる編集がありません');host.undoAi(count);}
  };
 
- return {STORAGE_KEY,DEFAULT_MODEL,INSTALL_COMMAND,PREFERRED_MODELS,systemPrompt,keyLabel,summarizeScore,trimHistory,buildMessages,buildChatPayload,registerTool,unregisterTool,listTools,toolSchemas,callTool,modelNames,pickModel,connectionMessage,pagesOllamaHint,fetchTags,postChat,readNdjson,textFromEvent,emptyStream,absorbEvent,finishStream,runTurn,attach,api};
+ return {STORAGE_KEY,DEFAULT_MODEL,INSTALL_COMMAND,PREFERRED_MODELS,systemPrompt,keyLabel,summarizeScore,trimHistory,buildMessages,buildChatPayload,registerTool,unregisterTool,listTools,toolSchemas,callTool,modelNames,pickModel,connectionMessage,pagesOllamaHint,acceptProxyResponse,resetOllamaTransport,fetchTags,postChat,readNdjson,textFromEvent,emptyStream,absorbEvent,finishStream,runTurn,attach,api};
 });
