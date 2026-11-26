@@ -1,45 +1,61 @@
 # OMR セットアップ（PC エンジン・端末 ML）
 
-## 自動の優先順位
+## 自動の優先順位（アプリ既定）
 
-1. **PC エンジン**（開発サーバー `HOST=0.0.0.0` + 同じ Wi‑Fi）
-2. **端末高精度**（oemer ONNX 約 104MB を初回 DL）
-3. **簡易パイプライン**（ブラウザ内古典 CV）
+1. **PC エンジン** — **Audiveris** → **homr** → oemer CLI（開発サーバー `HOST=0.0.0.0` + LAN）
+2. **端末 ML** — oemer ONNX（約 104MB 初回 DL、現状 ORT 互換に注意）
+3. **簡易 v2** — 最終フォールバック（古典 CV）
 
-## PC エンジン（Audiveris / oemer CLI）
+PC が使えない場合のみ 2→3 に落ちます。
 
-開発サーバーに `POST /__omr/recognize` を追加しています。LAN 上のスマホから「PCで読み取る」で利用します。
+## PC エンジン
+
+`POST /__omr/recognize`（`scripts/dev.mjs`）。上限 **12MB**。
 
 ### Windows
 
-1. **Audiveris（推奨・GPL）**: [公式リリース](https://github.com/Audiveris/audiveris/releases) をインストールし、`Audiveris.exe` を PATH に通すか、環境変数 `AUDIVERIS_CMD` にフルパスを設定。
-2. **oemer（MIT）**: `pip install oemer` で CLI を導入。
-3. `set HOST=0.0.0.0` のうえ `npm run dev`（または `Kanadeを開く.bat` 相当）。
-4. スマホで `http://<PCのIP>:5173` を開き、取り込み → 写真。
+1. **Audiveris 5.11+（GPL）**: [リリース](https://github.com/Audiveris/audiveris/releases) の `windowsConsole` MSI 等。
+2. **homr（AGPL-3.0）**: `pip install homr` → CLI `homr`（初回モデル DL 約 150MB）。
+3. **oemer（MIT）**: `pip install oemer`（本リポ VM では ONNX Runtime 1.32 とモデルが非互換のため未推奨）。
+4. `HOST=0.0.0.0 npm run dev`
+
+### Linux（Ubuntu 24.04 例）
+
+```bash
+sudo dpkg -i Audiveris-5.11.0-ubuntu24.04-x86_64.deb   # /opt/audiveris/bin/Audiveris
+pip install --user homr
+export AUDIVERIS_CMD=/opt/audiveris/bin/Audiveris   # 任意
+HOST=0.0.0.0 npm run dev
+```
 
 ### macOS
 
-1. Audiveris を `/Applications/Audiveris.app` に配置、または `brew`/手動で `audiveris` コマンドを PATH に。
-2. `pip install oemer`
+1. Audiveris を `/Applications/Audiveris.app` に配置。
+2. `pip install homr`
 3. `HOST=0.0.0.0 npm run dev`
 
-### 制限
+### homr について
 
-- リクエスト上限 **12MB**
-- ループバック／同一 LAN からのみ（`dev.mjs` の `allowedClient`）
-- 作業ディレクトリは OS の temp に作成し、処理後削除
+- トランスフォーマー系 OMR（[liebharc/homr](https://github.com/liebharc/homr)、**AGPL-3.0**）。
+- PC サーバー経由での利用を想定（アプリにモデル同梱はしない）。
+- 実測ベンチでは Verovio 刻譜で **homr が高 F1**（`docs/omr-bench-results.md` 参照）。
 
 ## 端末高精度（oemer ONNX）
 
-- **同梱しない**: `1st_model.onnx`（約 68MB）+ `2nd_model.onnx`（約 38MB）
-- **取得元**: [BreezeWhite/oemer checkpoints リリース](https://github.com/BreezeWhite/oemer/releases/tag/checkpoints)（MIT）
-- **実行時**: Cache Storage + `onnxruntime-web` WASM（`vendor/onnx/` に同梱）
-- 初回は UI で「高精度モードを有効にする（約104MBダウンロード）」の同意後に DL
+- チェックポイント: [oemer releases/checkpoints](https://github.com/BreezeWhite/oemer/releases/tag/checkpoints)（MIT）
+- ブラウザ: `onnxruntime-web` + `omr-ml-worker.js`
+- **既知問題**: 公開 ONNX が ORT 1.20+ の `ConvTranspose` 検証と衝突する環境あり。Node ベンチは NHWC `uint8` 256/288 で推論可能だが、後処理は homr/Audiveris より劣る。
 
-### モデルミラー（任意）
+## ベンチマーク
 
-GitHub が遠い場合、同じファイル名で Release をミラーし `app/web/src/omr-ml-manifest.js` の URL を差し替えてください。
+```bash
+npm install
+node scripts/omr-bench.mjs --limit=15          # 全エンジン
+node scripts/omr-bench.mjs --no-v2 --no-ml   # PC エンジンのみ（高速）
+```
+
+結果: `docs/omr-bench-results.json` / `.md`
 
 ## PDF.js
 
-`app/web/vendor/pdfjs/` に同梱。再取得: `node scripts/fetch-omr-vendor.mjs`
+`node scripts/fetch-omr-vendor.mjs` で `app/web/vendor/pdfjs/` を取得。

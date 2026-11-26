@@ -23,7 +23,7 @@
     if(root.KanadeOmrMlRuntime)caps.ml=await root.KanadeOmrMlRuntime.ready().catch(()=>false);
     if(root.KanadeOmrPcClient){
       const pc=await root.KanadeOmrPcClient.discover();
-      caps.pc=Boolean(pc?.status?.oemer||pc?.status?.audiveris);
+      caps.pc=Boolean(pc?.status?.audiveris||pc?.status?.homr||pc?.status?.oemer);
       caps.pcDetail=pc;
     }
     return caps;
@@ -57,7 +57,7 @@
       bitmap:{width:1,height:1,data:new Uint8Array([0]),ink:0},
       scoreDraft:score,
       warnings:[
-        method==='pc'?'PC 上の Audiveris / oemer による高精度読み取り結果です。':'MusicXML から読み込みました。'
+        method==='pc'?'PC 上の Audiveris / homr による高精度読み取り結果です。':'MusicXML から読み込みました。'
       ],
       method
     };

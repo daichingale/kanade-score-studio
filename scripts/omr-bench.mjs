@@ -8,10 +8,11 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { spawn } from 'node:child_process';
 import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
 import { buildCorpus, truthEvents } from './omr-bench-corpus.mjs';
 import { recognizeMlNode } from './omr-ml-node.mjs';
+import { bootXmlDom, parseScoreFromMusicXml } from './omr-xml-node.mjs';
+import { detectEngines, recognizeImageFile } from './omr-pc.mjs';
 
 const require = createRequire(import.meta.url);
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -22,6 +23,9 @@ const args = new Set(process.argv.slice(2));
 const limit = Number(process.argv.find(a => a.startsWith('--limit='))?.split('=')[1] || (args.has('--quick') ? 4 : 15));
 const noOemer = args.has('--no-oemer');
 const noMl = args.has('--no-ml');
+const noAudiveris = args.has('--no-audiveris');
+const noHomr = args.has('--no-homr');
+const noV2 = args.has('--no-v2');
 
 function boot(){
   require('../app/web/src/core.js');
@@ -50,13 +54,13 @@ async function renderPng(score, tk){
   if (!tk) {
     const verovio = await initVerovio();
     tk = new verovio.toolkit();
-    tk.setOptions({ font: 'Bravura', scale: 55, pageWidth: 2200, pageHeight: 2800, adjustPageHeight: true, svgViewBox: true, header: 'none', footer: 'none' });
+    tk.setOptions({ font: 'Bravura', scale: 70, pageWidth: 3000, pageHeight: 3600, adjustPageHeight: true, svgViewBox: true, header: 'none', footer: 'none', pageMarginTop: 120, pageMarginBottom: 80, pageMarginLeft: 120, pageMarginRight: 80 });
   }
   const built = Mei.meiForPart(score);
   if (!tk.loadData(built.mei)) throw new Error('Verovio loadData failed');
   const svg = tk.renderToSVG(1);
   const { Resvg } = await import('@resvg/resvg-js');
-  const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: 1400 }, background: '#ffffff' });
+  const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: 2000 }, background: '#ffffff' });
   return resvg.render().asPng();
 }
 
@@ -92,23 +96,25 @@ function recognitionToEvents(result, score){
 }
 
 function scoreEventsFromMusicXml(xml){
-  require('../app/web/src/musicxml-import.js');
-  const { score } = global.KanadeMusicXMLImport.parse(xml);
+  bootXmlDom();
+  const score = parseScoreFromMusicXml(xml);
   return truthEvents(score).events;
 }
 
-async function runOemer(pngPath){
-  const bin = process.env.PATH?.includes('.local/bin') ? 'oemer' : `${os.homedir()}/.local/bin/oemer`;
-  const workDir = await mkdtemp(path.join(os.tmpdir(), 'kanade-bench-oemer-'));
-  await new Promise((resolve, reject) => {
-    const child = spawn(bin, [pngPath, '-o', workDir], { stdio: 'inherit' });
-    child.on('error', reject);
-    child.on('close', code => (code === 0 ? resolve() : reject(new Error(`oemer exit ${code}`))));
-  });
-  const files = fs.readdirSync(workDir).filter(f => f.endsWith('.musicxml') || f.endsWith('.xml'));
-  if (!files.length) throw new Error('no musicxml from oemer');
-  const xml = await readFile(path.join(workDir, files[0]), 'utf8');
-  return scoreEventsFromMusicXml(xml);
+async function engineEventsFromFile(imagePath, engine){
+  const { musicxml } = await recognizeImageFile(imagePath, engine);
+  if (!musicxml) throw new Error(`${engine} が MusicXML を返しませんでした`);
+  return scoreEventsFromMusicXml(musicxml);
+}
+
+async function writePhoneJpeg(pngBuffer, outPath){
+  const sharp = (await import('sharp')).default;
+  await sharp(pngBuffer)
+    .rotate(2.2, { background: '#f8f8f8' })
+    .modulate({ brightness: 1.08, saturation: 0.85 })
+    .blur(0.6)
+    .jpeg({ quality: 68, chromaSubsampling: '4:2:0' })
+    .toFile(outPath);
 }
 
 function aggregate(rows){
@@ -120,7 +126,8 @@ function aggregate(rows){
     acc.n++;
     return acc;
   }, { n: 0 });
-  const n = Math.max(1, sum.n);
+  if (!sum.n) return { f1: 0, pitchAcc: 0, durationAcc: 0, precision: 0, recall: 0, samples: 0 };
+  const n = sum.n;
   return {
     f1: sum.f1 / n,
     pitchAcc: sum.pitchAcc / n,
@@ -138,11 +145,15 @@ async function main(){
   const corpus = buildCorpus().slice(0, limit);
   const rows = [];
   const tmpBase = await mkdtemp(path.join(os.tmpdir(), 'kanade-bench-'));
-  const hasOemer = !noOemer && fs.existsSync(`${os.homedir()}/.local/bin/oemer`);
+  const engines = await detectEngines();
+  const pcEngines = [];
+  if (!noAudiveris && engines.audiveris) pcEngines.push('audiveris');
+  if (!noHomr && engines.homr) pcEngines.push('homr');
+  if (!noOemer && engines.oemer) pcEngines.push('oemer');
 
   const verovioTk = await initVerovio().then(v => {
     const tk = new v.toolkit();
-    tk.setOptions({ font: 'Bravura', scale: 55, pageWidth: 2200, pageHeight: 2800, adjustPageHeight: true, svgViewBox: true, header: 'none', footer: 'none' });
+    tk.setOptions({ font: 'Bravura', scale: 70, pageWidth: 3000, pageHeight: 3600, adjustPageHeight: true, svgViewBox: true, header: 'none', footer: 'none', pageMarginTop: 120, pageMarginBottom: 80, pageMarginLeft: 120, pageMarginRight: 80 });
     return tk;
   });
 
@@ -154,18 +165,29 @@ async function main(){
     clean = await pngToImageData(png);
     phone = await degradePhone(png);
     const pngPath = path.join(tmpBase, `${item.id}.png`);
+    const phonePath = path.join(tmpBase, `${item.id}-phone.jpg`);
     await writeFile(pngPath, png);
+    await writePhoneJpeg(png, phonePath);
 
-    const variants = [['clean', clean], ['phone', phone]];
-    for (const [variant, imageData] of variants) {
-      const methodRuns=[
-        ['v2_before', () => O.recognizeRGBA(imageData, { time: item.score.time, solver: false })],
-        ['v2_after', () => O.recognizeRGBA(imageData, { time: item.score.time, solver: true })]
-      ];
-      if(!noMl)methodRuns.push(['ml_node', async()=>await Promise.race([
-        recognizeMlNode(imageData),
-        new Promise((_,reject)=>setTimeout(()=>reject(new Error('ml timeout')),120000))
-      ])]);
+    const sanity = Align.align(truth, truth, { barTicks });
+    rows.push({ id: item.id, variant: 'sanity', method: 'ground_truth', ...sanity });
+
+    const variants = [
+      ['clean', clean, pngPath],
+      ['phone', phone, phonePath]
+    ];
+    for (const [variant, imageData, filePath] of variants) {
+      const methodRuns=[];
+      if (!noV2) {
+        methodRuns.push(['v2_before', () => O.recognizeRGBA(imageData, { time: item.score.time, solver: false })]);
+        methodRuns.push(['v2_after', () => O.recognizeRGBA(imageData, { time: item.score.time, solver: true })]);
+      }
+      if (!noMl) {
+        methodRuns.push(['ml_node', async () => Promise.race([
+          recognizeMlNode(imageData),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('ml timeout')), 180000))
+        ])]);
+      }
       for (const [method, run] of methodRuns) {
         try {
           const rec = await run();
@@ -176,13 +198,14 @@ async function main(){
           rows.push({ id: item.id, variant, method, error: error.message, f1: 0, pitchAcc: 0, durationAcc: 0 });
         }
       }
-      if (hasOemer && variant === 'clean') {
+      for (const engine of pcEngines) {
+        const method = engine === 'audiveris' ? 'audiveris' : engine === 'homr' ? 'homr_cli' : 'oemer_cli';
         try {
-          const predicted = await runOemer(pngPath);
+          const predicted = await engineEventsFromFile(filePath, engine);
           const m = Align.align(truth, predicted, { barTicks });
-          rows.push({ id: item.id, variant: 'clean', method: 'oemer_cli', ...m });
+          rows.push({ id: item.id, variant, method, ...m });
         } catch (error) {
-          rows.push({ id: item.id, variant: 'clean', method: 'oemer_cli', error: error.message, f1: 0 });
+          rows.push({ id: item.id, variant, method, error: error.message, f1: 0, pitchAcc: 0, durationAcc: 0 });
         }
       }
     }
@@ -199,7 +222,15 @@ async function main(){
     methods: {},
     beforeAfter: {}
   };
-  for (const method of ['v2_before', 'v2_after', 'ml_node', 'oemer_cli']) {
+  const methodNames = ['ground_truth', 'audiveris', 'homr_cli', 'oemer_cli', 'ml_node', 'v2_before', 'v2_after'];
+  summary.engines = engines;
+  for (const method of methodNames) {
+    if (method === 'ground_truth') {
+      summary.methods[method] = {
+        sanity: aggregate(rows.filter(r => r.method === method && !r.error))
+      };
+      continue;
+    }
     summary.methods[method] = {
       clean: aggregate(rows.filter(r => r.method === method && r.variant === 'clean' && !r.error)),
       phone: aggregate(rows.filter(r => r.method === method && r.variant === 'phone' && !r.error))

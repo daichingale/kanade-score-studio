@@ -11,8 +11,8 @@ export function buildCorpus(){
   add('melody-cmajor','メロディー C メジャー',title=>{
     const s={...C.createScore(),title,time:{num:4,den:4},key:0};
     const steps=['E','F','G','A','G','F','E','D'];
-    s.measures[0].events=steps.map(step=>C.makeNote({step,octave:4,alter:0},4));
-    s.measures.push({id:uid(),events:steps.slice(0,4).map(step=>C.makeNote({step,octave:4,alter:0},4))});
+    s.measures[0].events=steps.slice(0,4).map(step=>C.makeNote({step,octave:4,alter:0},4));
+    s.measures.push({id:uid(),events:steps.slice(4,8).map(step=>C.makeNote({step,octave:4,alter:0},4))});
     return s;
   });
 

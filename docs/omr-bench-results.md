@@ -1,29 +1,46 @@
-# OMR 実測ベンチ（Verovio 刻譜ラスタ）
+# OMR 実測ベンチ（15 譜・Verovio ラスタ 2000px + phone 劣化）
 
-生成: `node scripts/omr-bench.mjs`（コーパス 15、clean / phone 劣化）
+再現: `node scripts/omr-bench.mjs --limit=15`  
+詳細: `docs/omr-bench-results.json`（2026-11-26 マージ版）
 
-## 集計（`docs/omr-bench-results.json` より）
+## 整列の健全性
 
-| 手法 | clean F1 | clean 音高 | clean 音価 | phone F1 | phone 音高 | phone 音価 |
-|------|---------|-----------|-----------|---------|-----------|-----------|
-| Kanade v2（solver 前） | 1.2% | 7.0% | 2.5% | 1.4% | 10.9% | 3.1% |
-| Kanade v2（solver 後） | 1.2% | 7.0% | 2.5% | 1.3% | 10.9% | 3.1% |
-| ML（onnxruntime-node） | 未集計¹ | — | — | — | — | — |
-| oemer CLI | — | — | — | — | — | — |
+| 検査 | F1 | 音高 | 音価 | n |
+|------|-----|------|------|---|
+| 真値 ↔ 真値（ground_truth） | **100%** | 100% | 100% | 15 |
 
-## before → after（v2）
+## エンジン別（成功サンプル上の平均）
 
-- **clean F1**: 約 −0.04pt（同一音高・音価率、solver は主に誤検出ノイズを整理）
-- **phone F1**: ほぼ横ばい
-- **前提修正**: Verovio→PNG は `resvg` の白背景必須（未指定だと RGB 全黒で五線検出不能）。刻譜向け五線クラスタを追加し、**以前の実測 0%（検出不能）から数値化可能に**。
+| エンジン | clean F1 | clean 音高 | clean 音価 | phone F1 | phone 音高 | phone 音価 | 成功数/15 |
+|---------|----------|-----------|-----------|----------|-----------|-----------|-----------|
+| **homr**（PC 既定） | **97.5%** | 97.5% | 97.5% | **100%** | 100% | 100% | 8 / 8 |
+| **Audiveris** | **100%**¹ | 100% | 100% | 78.6% | 85.7% | 78.6% | 2 / 2 |
+| Kanade v2（solver 前） | 0%² | 0% | 0% | 0% | 7.8% | 0% | 6 / 15 clean |
+| Kanade v2（solver 後） | 0%² | 0% | 0% | 0% | 7.8% | 0% | 同上 |
+| oemer CLI | — | — | — | — | — | — | 0（ORT ConvTranspose） |
+| ML（onnxruntime-node） | — | — | — | — | — | — | 未計測（別 run） |
 
-## 外部エンジン（VM）
+¹ Audiveris は Verovio の小さな 1 行カット譜で **No system found** が多く、成功 2 譜のみ集計。  
+² clean で一部譜が五線未検出（6/15）。以前の ~1.2% F1 は小サンプル時の値；今回も実質 0% 帯。
 
-- **oemer**: ONNX `ConvTranspose` ShapeInferenceError（モデル×ORT 1.32）。CUDA なし環境でも CPU で同エラー。`--use-tf` 未検証。
-- **Audiveris**: 本 VM 未導入（`docs/omr-setup.md` 参照）。
+## アプリ既定（この PR）
 
-## 限界・次手
+| 環境 | 優先 |
+|------|------|
+| **PC（dev サーバー）** | **homr** → Audiveris → oemer → v2 |
+| **端末のみ** | oemer ONNX ML（互換環境）→ **v2 簡易** |
 
-- v2 は Verovio 細線＋誤検出多発のため F1 は低い。音価・小節線・符頭の分離改善が必要。
-- ¹ ML: `1st_model`/`2nd_model` を NHWC `uint8`（256×256 / 288×288）で推論可能に修正済み。直近フルベンチは次元エラー行が残るため再実行推奨。単票では推論完走するが音符 0 件となるケースあり（マスク→後処理要調整）。
-- oemer CLI は ONNX `ConvTranspose` / CUDA なし環境でも CPU で同エラー。
+homr は **AGPL-3.0** のためサーバー経由利用を推奨（モデル約 150MB、同梱なし）。
+
+## ユーザーが入れるもの
+
+- **高精度 PC**: Java 17+、`pip install homr`、任意で [Audiveris 5.11 deb/msi](https://github.com/Audiveris/audiveris/releases)
+- **LAN**: `HOST=0.0.0.0 npm run dev`
+- **端末 ML**: 初回 ~104MB DL（oemer ONNX）
+
+## 既知の限界
+
+- oemer: 公開 ONNX × ORT 1.32 で推論失敗（VM 実測）。
+- Audiveris: 刻譜 PNG の高さが低いと系統検出失敗しやすい。
+- homr: 7/15 は MusicXML 取り込み検証（声部の拍超過など）でベンチ集計外。
+- v2: 刻譜ラスタ向けには精度不足（フォ
