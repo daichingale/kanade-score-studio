@@ -979,6 +979,12 @@
 .score-omr-canvas{width:100%;max-height:42vh;border:1px solid var(--border);border-radius:8px;background:#fff}
 .score-omr-notes,.score-omr-warnings{margin:8px 0;padding-left:1.1rem;font-size:12px;line-height:1.5;color:#4a6077}
 .score-omr-notes li{margin:6px 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.score-omr-modebar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0 10px}
+.score-omr-modebar select{min-width:10rem}
+.score-omr-ml-panel{margin:8px 0;padding:10px;border:1px solid #c9d9ea;border-radius:8px;background:#f5faff}
+.score-omr-ml-panel[hidden]{display:none!important}
+.score-omr-ml-track{display:block;height:8px;border-radius:4px;background:#dfe9f3;overflow:hidden}
+.score-omr-ml-track [data-omr-ml-bar]{display:block;height:100%;width:0;background:linear-gradient(90deg,#4f9fd6,#2b6fa8)}
 .score-omr-exports{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
 .score-omr-exports button{padding:12px;border:1px solid #8eb5d8;border-radius:9px;background:#eef6fc;color:#164f7e;font-weight:650}
 @media screen and (max-width:760px){.score-omr-exports{grid-template-columns:1fr}}

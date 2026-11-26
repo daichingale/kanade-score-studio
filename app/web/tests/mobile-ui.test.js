@@ -12,6 +12,9 @@ test('mobile dock exposes score import entry points',()=>{
  assert.match(html,/id="scoreImportChooser"/);
  assert.match(html,/id="scoreOmrExportMidi"/);
  assert.match(html,/id="scoreOmrExportMusicXml"/);
+ assert.match(html,/id="scoreOmrMode"/);
+ assert.match(html,/id="scoreOmrPcBtn"/);
+ assert.match(html,/id="scoreOmrMlEnable"/);
  assert.match(html,/id="importCamera"/);
  assert.match(html,/capture="environment"/);
 });

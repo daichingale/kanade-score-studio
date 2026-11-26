@@ -51,6 +51,7 @@ SVG文字列の全体生成は、連桁処理を追加したため120小節で4.
 
 - 取り込みメニュー（カメラ / 写真・PDF / MusicXML・MXL・MIDI・Kanade JSON）。重いモジュールは `import-hub.js` から遅延読み込み。
 - MIDI（`.mid`）のクライアント取り込み。音価は格子に近似。
+- OMR 三層（自動: PC エンジン → 端末 oemer ONNX → 簡易 CV）。開発サーバー `POST /__omr/recognize`、端末は初回約 104MB DL。詳細 `docs/omr-setup.md`。
 - OMR v2（印刷譜向け）：Sauvola 二値化・透視補正候補・複数系統の五線・小節線・符頭スキャン・符幹/ビーム由来の音価・和音・調号推定・小節内音価正規化。合成楽譜 fixtures で評価（`omr-eval.test.js`）。**MIDI / MusicXML ワンタップ書き出し**（Web Share）付き。PDF.js は `vendor/pdfjs/` に任意同梱（未配置時は JPEG 埋め込み PDF のみ）。ONNX/oemer モデルはサイズのため未同梱。
 - 高精度OMRは Audiveris / oemer 等で MusicXML 化してから取り込む運用を PR 説明に記載。
 

@@ -1,15 +1,15 @@
-/* Optional ONNX OMR — models are not bundled (oemer weights are 100MB+; mobile PWA budget). */
+/* On-device ML OMR public API — models fetched on demand (see omr-ml-manifest.js). */
 (function(root){
   'use strict';
+  const M=()=>root.KanadeOmrMlManifest;
 
-  async function tryOnnxAssist(/* bitmap */){
-    return null;
-  }
-
-  const status={
-    enabled:false,
-    reason:'oemer/ONNX モデル（約100MB以上）は未同梱です。古典パイプラインとレビュー画面で補正してください。Audiveris（GPL）をローカルで実行して MusicXML で取り込む方法も利用できます。'
+  root.KanadeOmrMl={
+    manifest:M,
+    displaySize:()=>M()?.displaySize||'約104MB',
+    license:()=>M()?.license,
+    status:{
+      enabled:true,
+      reason:`oemer ONNX（${M()?.displaySize}）は初回利用時に GitHub Release からダウンロードされます。ライセンス: ${M()?.license?.name} (${M()?.license?.project})。`
+    }
   };
-
-  root.KanadeOmrMl={tryOnnxAssist,status};
 })(globalThis);

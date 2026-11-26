@@ -101,5 +101,61 @@
     return {width,height,data:out};
   }
 
-  root.KanadeOmrFixture={renderScoreBitmap,groundTruth};
+  function buildDurationMix(){
+    const score={...C.createScore(),time:{num:4,den:4}};
+    score.measures[0].events.push(
+      C.makeNote({step:'E',octave:4,alter:0},4),
+      C.makeNote({step:'F',octave:4,alter:0},8),
+      C.makeNote({step:'G',octave:4,alter:0},8),
+      C.makeNote({step:'A',octave:4,alter:0},2)
+    );
+    return score;
+  }
+
+  function buildAccidentalMelody(){
+    const score={...C.createScore(),time:{num:4,den:4},key:2};
+    score.measures[0].events.push(
+      C.makeNote({step:'F',octave:4,alter:1},4),
+      C.makeNote({step:'C',octave:5,alter:1},4),
+      C.makeNote({step:'B',octave:4,alter:-1},4)
+    );
+    return score;
+  }
+
+  function buildTwoStaffMelody(){
+    const score={...C.createScore(),time:{num:4,den:4}};
+    score.measures[0].events.push(
+      C.makeNote({step:'E',octave:4,alter:0},4),
+      C.makeNote({step:'G',octave:4,alter:0},4)
+    );
+    score.measures.push({id:C.uid(),events:[
+      C.makeNote({step:'C',octave:4,alter:0},4),
+      C.makeNote({step:'E',octave:4,alter:0},4)
+    ]});
+    return score;
+  }
+
+  function blurBitmap(imageData,radius=1){
+    if(!radius)return imageData;
+    const {width,height,data}=imageData;
+    const out=new Uint8ClampedArray(data);
+    for(let y=1;y<height-1;y++){
+      for(let x=1;x<width-1;x++){
+        let r=0,g=0,b=0,c=0;
+        for(let dy=-radius;dy<=radius;dy++){
+          for(let dx=-radius;dx<=radius;dx++){
+            const o=((y+dy)*width+(x+dx))*4;
+            r+=data[o];g+=data[o+1];b+=data[o+2];c++;
+          }
+        }
+        const o=(y*width+x)*4;
+        out[o]=r/c;out[o+1]=g/c;out[o+2]=b/c;
+      }
+    }
+    return {width,height,data:out};
+  }
+
+  root.KanadeOmrFixture={
+    renderScoreBitmap,groundTruth,buildDurationMix,buildAccidentalMelody,buildTwoStaffMelody,blurBitmap
+  };
 })(globalThis);
