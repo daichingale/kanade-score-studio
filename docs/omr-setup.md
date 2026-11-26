@@ -49,6 +49,13 @@ HOST=0.0.0.0 npm run dev
   - **oemer CLI** は内部が最適化 ON のままのため、本 VM では 0/15 失敗。`ORT_DISABLE_ALL=1` も CLI には効かない（`oemer` 側が `SessionOptions` を渡していない）。
   - ベンチの `ml_node` は 15/15 パイプライン成功だが F1 は 0% — ラスタ→イベント後段は homr には劣る。
 
+## homr 入力（PC 既定）
+
+- `scripts/omr-homr-prep.mjs` で **~2.5MP** にスケール正規化（homr 上流どおり）
+- CLI: `--no-title` でタイトル検出を省略
+- 取り込み後: `omr-musicxml-post.js` で調号・小節リズムを補正
+- マルチスケール（3 回推論）は `recognizeHomrFile({ multiscale: true })` / ベンチ `--homr-ms`
+
 ## phone 写真の前処理（PC エンジン）
 
 `scripts/omr-engine-prep.mjs` — **Audiveris + phone** のみデフォルトでアップスケール・コントラスト。homr はオリジナル JPEG のまま（過剰前処理で F1 が下がるため）。

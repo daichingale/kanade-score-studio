@@ -75,5 +75,32 @@
     };
   }
 
-  root.KanadeOmrAlign={align,eventNotes,noteMatch};
+  function categorize(truthEvents,recognizedEvents,{barTicks=C.TPQ*4,tickTol=240}={}){
+    const truth=eventNotes(truthEvents);
+    const rec=eventNotes(recognizedEvents);
+    const used=new Set();
+    const cat={missed:0,duration:0,pitch:0,extra:0,rest:0,matched:0};
+    for(const expect of truth){
+      let best=-1,bestScore=Infinity;
+      for(let i=0;i<rec.length;i++){
+        if(used.has(i))continue;
+        const got=rec[i];
+        const dt=Math.abs(ticks(expect,barTicks)-ticks(got,barTicks));
+        if(dt>tickTol)continue;
+        const score=dt+(pitchEq(expect.pitch,got.pitch)?0:900)+(expect.den===got.den&&(expect.dots||0)===(got.dots||0)?0:500);
+        if(score<bestScore){bestScore=score;best=i;}
+      }
+      if(best<0){cat.missed++;continue;}
+      used.add(best);
+      const got=rec[best];
+      if(noteMatch(expect,got))cat.matched++;
+      else if(expect.rest||got.rest)cat.rest++;
+      else if(!pitchEq(expect.pitch,got.pitch))cat.pitch++;
+      else cat.duration++;
+    }
+    cat.extra=rec.length-cat.matched-cat.pitch-cat.duration-cat.rest;
+    return cat;
+  }
+
+  root.KanadeOmrAlign={align,eventNotes,noteMatch,categorize};
 })(globalThis);

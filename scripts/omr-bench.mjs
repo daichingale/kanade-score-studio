@@ -9,7 +9,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
-import { buildCorpus, truthEvents } from './omr-bench-corpus.mjs';
+import { buildAllCorpus, truthEvents } from './omr-bench-corpus.mjs';
 import { recognizeMlNode } from './omr-ml-node.mjs';
 import { bootXmlDom, parseMusicXmlImport } from './omr-xml-node.mjs';
 import { detectEngines, recognizeImageFile, recognizeImageFileBestOf } from './omr-pc.mjs';
@@ -17,7 +17,8 @@ import { detectEngines, recognizeImageFile, recognizeImageFileBestOf } from './o
 const require = createRequire(import.meta.url);
 const root = path.dirname(fileURLToPath(import.meta.url));
 const toolkitPath = path.join(root, '../app/web/vendor/verovio/verovio-toolkit-wasm.js');
-const outPath = path.join(root, '../docs/omr-bench-results.json');
+const outOverride = process.argv.find(a => a.startsWith('--out='))?.split('=').slice(1).join('=');
+const outPath = outOverride ? path.resolve(outOverride) : path.join(root, '../docs/omr-bench-results.json');
 
 const args = new Set(process.argv.slice(2));
 const limit = Number(process.argv.find(a => a.startsWith('--limit='))?.split('=')[1] || (args.has('--quick') ? 4 : 15));
@@ -28,6 +29,9 @@ const noHomr = args.has('--no-homr');
 const noV2 = args.has('--no-v2');
 const noPrep = args.has('--no-prep');
 const noBestOf = args.has('--no-bestof');
+const extended = args.has('--extended');
+const homrMs = args.has('--homr-ms');
+const noHomrLegacy = args.has('--no-homr-legacy');
 
 function boot(){
   require('../app/web/src/core.js');
@@ -51,18 +55,33 @@ async function initVerovio(){
   return verovio;
 }
 
-async function renderPng(score, tk){
+async function renderPng(score, tk, layout = 'single'){
   const Mei = require('../app/web/src/verovio-mei.js');
+  const ensemble = layout === 'ensemble' && score.ensembleParts?.length;
   if (!tk) {
     const verovio = await initVerovio();
     tk = new verovio.toolkit();
     tk.setOptions({ font: 'Bravura', scale: 70, pageWidth: 3000, pageHeight: 3600, adjustPageHeight: true, svgViewBox: true, header: 'none', footer: 'none', pageMarginTop: 120, pageMarginBottom: 80, pageMarginLeft: 120, pageMarginRight: 80 });
   }
-  const built = Mei.meiForPart(score);
+  tk.setOptions({
+    font: 'Bravura',
+    scale: ensemble ? 58 : 70,
+    pageWidth: ensemble ? 3200 : 3000,
+    pageHeight: ensemble ? 5200 : 3600,
+    adjustPageHeight: true,
+    svgViewBox: true,
+    header: 'none',
+    footer: 'none',
+    pageMarginTop: ensemble ? 160 : 120,
+    pageMarginBottom: 120,
+    pageMarginLeft: 120,
+    pageMarginRight: 120
+  });
+  const built = ensemble ? Mei.meiForParts([score, ...score.ensembleParts]) : Mei.meiForPart(score);
   if (!tk.loadData(built.mei)) throw new Error('Verovio loadData failed');
   const svg = tk.renderToSVG(1);
   const { Resvg } = await import('@resvg/resvg-js');
-  const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: 2000 }, background: '#ffffff' });
+  const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: ensemble ? 2200 : 2000 }, background: '#ffffff' });
   return resvg.render().asPng();
 }
 
@@ -114,9 +133,9 @@ function scoreEventsWithPenalty(xml){
   return { events: truthEvents(parsed.score).events, penalty: importPenalty(parsed.warnings), warnings: parsed.warnings };
 }
 
-async function engineEventsFromFile(imagePath, engine, variant){
-  const prep = !noPrep && variant === 'phone' && engine === 'audiveris';
-  const { musicxml } = await recognizeImageFile(imagePath, engine, { prep, variant });
+async function engineEventsFromFile(imagePath, engine, variant, homrOpts = {}){
+  const prep = !noPrep && ((variant === 'phone' && engine === 'audiveris') || (engine === 'audiveris' && variant === 'clean'));
+  const { musicxml } = await recognizeImageFile(imagePath, engine, { prep, variant, ...homrOpts });
   if (!musicxml) throw new Error(`${engine} が MusicXML を返しませんでした`);
   return scoreEventsFromMusicXml(musicxml);
 }
@@ -166,7 +185,8 @@ async function main(){
   boot();
   const Align = global.KanadeOmrAlign;
   const O = global.KanadeOMR;
-  const corpus = buildCorpus().slice(0, limit);
+  const allCorp = buildAllCorpus({ extended });
+  const corpus = allCorp.slice(0, limit);
   const rows = [];
   const tmpBase = await mkdtemp(path.join(os.tmpdir(), 'kanade-bench-'));
   const engines = await detectEngines();
@@ -185,7 +205,7 @@ async function main(){
     let png, clean, phone;
     try {
     const { events: truth, barTicks } = truthEvents(item.score);
-    png = await renderPng(item.score, verovioTk);
+    png = await renderPng(item.score, verovioTk, item.layout || 'single');
     clean = await pngToImageData(png);
     phone = await degradePhone(png);
     const pngPath = path.join(tmpBase, `${item.id}.png`);
@@ -227,9 +247,25 @@ async function main(){
         try {
           const predicted = await engineEventsFromFile(filePath, engine, variant);
           const m = Align.align(truth, predicted, { barTicks });
-          rows.push({ id: item.id, variant, method, ...m });
+          const cats = Align.categorize(truth, predicted, { barTicks });
+          rows.push({ id: item.id, variant, method, ...m, errorCats: cats });
         } catch (error) {
           rows.push({ id: item.id, variant, method, error: error.message, f1: 0, pitchAcc: 0, durationAcc: 0 });
+        }
+      }
+      if (engines.homr && !noHomr) {
+        const extraHomr = [
+          ...(noHomrLegacy ? [] : [['homr_legacy', { homrLegacy: true, normalized: false }]]),
+          ...(homrMs ? [['homr_multiscale', { multiscale: true }]] : [])
+        ];
+        for (const [method, homrOpts] of extraHomr) {
+          try {
+            const predicted = await engineEventsFromFile(filePath, 'homr', variant, homrOpts);
+            const m = Align.align(truth, predicted, { barTicks });
+            rows.push({ id: item.id, variant, method, ...m });
+          } catch (error) {
+            rows.push({ id: item.id, variant, method, error: error.message, f1: 0, pitchAcc: 0, durationAcc: 0 });
+          }
         }
       }
       if (!noBestOf && engines.homr && engines.audiveris) {
@@ -256,7 +292,7 @@ async function main(){
     methods: {},
     beforeAfter: {}
   };
-  const methodNames = ['ground_truth', 'audiveris', 'homr_cli', 'pc_best_of', 'oemer_cli', 'ml_node', 'v2_before', 'v2_after'];
+  const methodNames = ['ground_truth', 'audiveris', 'homr_cli', 'homr_legacy', 'homr_multiscale', 'pc_best_of', 'oemer_cli', 'ml_node', 'v2_before', 'v2_after'];
   summary.engines = engines;
   for (const method of methodNames) {
     if (method === 'ground_truth') {
@@ -274,13 +310,23 @@ async function main(){
     phoneF1Delta: summary.methods.v2_after?.phone?.f1 - summary.methods.v2_before?.phone?.f1,
     cleanF1Delta: summary.methods.v2_after?.clean?.f1 - summary.methods.v2_before?.clean?.f1,
     homrVsBaseline: {
-      baselineRef: 'main@4ff62e4 (PR #12 import repair)',
+      baselineRef: 'main@7245c61 (PR #13 import/prep)',
       homrCleanF1: summary.methods.homr_cli?.clean?.f1,
       homrPhoneF1: summary.methods.homr_cli?.phone?.f1,
+      homrCleanDur: summary.methods.homr_cli?.clean?.durationAcc,
+      homrPhoneDur: summary.methods.homr_cli?.phone?.durationAcc,
       baselineHomrCleanF1: 0.801973581973582,
-      baselineHomrPhoneF1: 0.8050505050505051
+      baselineHomrPhoneF1: 0.8050505050505051,
+      baselineHomrCleanDur: 0.775952380952381,
+      baselineHomrPhoneDur: 0.7809523809523807
     }
   };
+  const homrRows = rows.filter(r => r.method === 'homr_cli' && !r.error && r.errorCats);
+  summary.errorCategories = homrRows.reduce((acc, r) => {
+    for (const [k, v] of Object.entries(r.errorCats)) acc[k] = (acc[k] || 0) + v;
+    return acc;
+  }, {});
+  summary.corpusTag = extended ? 'legacy+extended' : 'legacy15';
   summary.successRates = {};
   const corpusN = corpus.length;
   for (const method of methodNames) {

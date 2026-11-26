@@ -149,6 +149,65 @@ export function buildCorpus(){
   return corpus;
 }
 
+/** Extra 3 multi-staff wind-style scores for extended bench. */
+export function buildExtendedCorpus(){
+  const extended=[];
+  const add=(id,title,builder)=>extended.push({id,title,score:builder(title),layout:'ensemble'});
+
+  add('ensemble-flute-tuba','アンサンブル フルート+チューバ',title=>{
+    const flute={...C.createScore(),title,instrument:'Flute',time:{num:4,den:4},key:0,tempo:108};
+    flute.measures[0].events=[
+      C.makeNote({step:'G',octave:4,alter:0},4),
+      C.makeNote({step:'A',octave:4,alter:0},4),
+      C.makeNote({step:'B',octave:4,alter:0},4),
+      C.makeNote({step:'C',octave:5,alter:0},4)
+    ];
+    const tuba={...C.createScore(),title:'Tuba',instrument:'Tuba',clef:'bass',time:{num:4,den:4},key:0,tempo:108};
+    tuba.measures[0].events=[
+      C.makeNote({step:'C',octave:2,alter:0},4),
+      C.makeRest(4),
+      C.makeNote({step:'G',octave:2,alter:0},2)
+    ];
+    flute.ensembleParts=[tuba];
+    return flute;
+  });
+
+  add('ensemble-clarinet-horn','クラリネット+ホルン 2 段',title=>{
+    const cl={...C.createScore(),title,instrument:'Clarinet',time:{num:4,den:4},key:-1,tempo:92};
+    cl.measures[0].events=[
+      {...C.makeNote({step:'E',octave:4,alter:0},8),dots:1},
+      C.makeNote({step:'F',octave:4,alter:0},16),
+      C.makeNote({step:'G',octave:4,alter:0},4)
+    ];
+    const hn={...C.createScore(),title:'Horn',instrument:'Horn',clef:'treble',time:{num:4,den:4},key:-1,tempo:92,transposition:'F'};
+    hn.measures[0].events=[
+      C.makeNote({step:'C',octave:4,alter:0},2),
+      C.makeNote({step:'E',octave:4,alter:0},4)
+    ];
+    cl.ensembleParts=[hn];
+    return cl;
+  });
+
+  add('piano-grand-short','ピアノ大譜表 2 小節',title=>{
+    const rh={...C.createScore(),title,instrument:'Piano',time:{num:4,den:4},key:0};
+    rh.measures[0].events=[C.makeNote({step:'E',octave:5,alter:0},4),C.makeNote({step:'G',octave:5,alter:0},4)];
+    const lh={...C.createScore(),title:'Piano LH',instrument:'Piano',clef:'bass',time:{num:4,den:4},key:0};
+    lh.measures[0].events=[C.makeNote({step:'C',octave:3,alter:0},4),C.makeNote({step:'G',octave:2,alter:0},4)];
+    rh.measures.push({id:uid(),events:[C.makeNote({step:'C',octave:5,alter:0},2)]});
+    lh.measures.push({id:uid(),events:[C.makeRest(2),C.makeNote({step:'F',octave:2,alter:1},2)]});
+    rh.ensembleParts=[lh];
+    return rh;
+  });
+
+  return extended;
+}
+
+export function buildAllCorpus({extended=false}={}){
+  const legacy=buildCorpus();
+  if(!extended)return legacy;
+  return [...legacy,...buildExtendedCorpus()];
+}
+
 export function truthEvents(score){
   const events=[];
   const barTicks=C.TPQ*score.time.num*(4/score.time.den);

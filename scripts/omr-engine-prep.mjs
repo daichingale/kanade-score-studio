@@ -8,8 +8,14 @@ import os from 'node:os';
  * Audiveris: target ~300dpi-like height for staff interline detection.
  */
 export async function prepareEngineImage(inputPath, { engine = 'homr', variant = 'clean', keepDir = false } = {}) {
-  if (variant === 'phone' && engine === 'homr') return { path: inputPath, workDir: null };
-  if (variant === 'clean' && engine !== 'audiveris') return { path: inputPath, workDir: null };
+  if (engine === 'homr') return { path: inputPath, workDir: null };
+  if (variant === 'clean' && engine === 'audiveris') {
+    const sharp = (await import('sharp')).default;
+    const meta = await sharp(inputPath).metadata();
+    if ((meta.height || 0) >= 900 && (meta.width || 0) >= 1800) return { path: inputPath, workDir: null };
+  } else if (variant === 'clean') {
+    return { path: inputPath, workDir: null };
+  }
   const sharp = (await import('sharp')).default;
   const ext = path.extname(inputPath).toLowerCase();
   const usePng = ext === '.png' || engine === 'audiveris';
