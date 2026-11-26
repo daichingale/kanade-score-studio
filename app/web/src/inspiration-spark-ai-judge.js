@@ -96,7 +96,7 @@
   const timer=controller?setTimeout(()=>controller.abort(),timeoutMs):null;
   try{
    const response=await postChat({
-    model:model||'qwen2.5:3b',
+    model:model||'qwen2.5:7b',
     stream:false,
     options:{temperature:0,num_predict:512},
     messages:[{role:'system',content:SYSTEM_PROMPT},{role:'user',content:user}]
