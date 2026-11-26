@@ -2807,7 +2807,8 @@
             else loadImportedScore(parsed.score);
           },
           toast:showToast,
-          attempt
+          attempt,
+          download:(content,filename,type)=>download(content,filename,type)
         });
         resolve(window.KanadeImportHub);
       };

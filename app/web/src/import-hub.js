@@ -21,7 +21,8 @@
     if(depsReady)return;
     await Promise.all([
       loadScript('src/midi-import.js'),
-      loadScript('src/import-pipeline.js')
+      loadScript('src/import-pipeline.js'),
+      loadScript('src/import-export.js')
     ]);
     depsReady=true;
   }
@@ -125,17 +126,37 @@
       hub.omrNotes=notes.map(note=>({...note,pitch:{...note.pitch}}));
       dialog.showModal();
     },
-    commitOmr(label='写真から取り込み'){
+    reviewedScore(label){
       if(!hub.omrNotes?.length)throw Error('取り込む音符がありません');
       const selected=hub.omrNotes.filter((_,index)=>{
         const box=$('scoreOmrNotes')?.querySelector(`[data-omr-index="${index}"]`);
         return !box||box.checked;
       });
-      const score=root.KanadeOMR.scoreFromNotes(selected,{title:label});
+      return root.KanadeOMR.scoreFromNotes(selected,{title:label});
+    },
+    commitOmr(label='写真から取り込み'){
+      const score=hub.reviewedScore(label);
       return {score,warnings:[
         '簡易OMRの結果です。譜面上で音符を直してから演奏・書き出しをおすすめします。',
         '高精度な読み取りは Audiveris（GPL）や oemer などをローカルで実行し、MusicXML を取り込んでください。'
       ]};
+    },
+    async exportReviewed(kind,{preferShare=true}={}){
+      await ensureCore();
+      if(!root.KanadeExport)await loadScript('src/musicxml.js');
+      const MidiExport=root.KanadeMIDIExport;
+      if(!MidiExport)await loadScript('src/midi-export.js');
+      const title=$('scoreOmrTitle')?.value||'写真から取り込み';
+      const score=hub.reviewedScore(title);
+      const pkg=root.KanadeImportExport.packageScore(score,kind);
+      const result=await root.KanadeImportExport.deliver(pkg,{
+        preferShare,
+        download:hub.hooks.download
+      });
+      const label=kind==='midi'?'MIDI':'MusicXML';
+      if(result.method==='share')hub.hooks.toast?.(label+'を共有シートで送信できます');
+      else if(result.method==='download')hub.hooks.toast?.(label+'を書き出しました：'+result.filename);
+      return result;
     }
   };
 
@@ -186,6 +207,8 @@
       omr.close();
     }));
     $('scoreOmrCancel')?.addEventListener('click',()=>omr.close());
+    $('scoreOmrExportMidi')?.addEventListener('click',()=>hub.hooks.attempt?.(()=>hub.exportReviewed('midi')));
+    $('scoreOmrExportMusicXml')?.addEventListener('click',()=>hub.hooks.attempt?.(()=>hub.exportReviewed('musicxml')));
   }
 
   setupUi();

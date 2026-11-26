@@ -596,9 +596,14 @@
     <ul id="scoreOmrWarnings" class="score-omr-warnings"></ul>
     <ol id="scoreOmrNotes" class="score-omr-notes"></ol>
     <p class="panel-hint">赤枠は推定した音符です。誤りはチェックを外すか半音ボタンで直してください。</p>
+    <div class="score-omr-exports" role="group" aria-label="認識結果をファイルで書き出す">
+      <button type="button" id="scoreOmrExportMidi">MIDI (.mid) を書き出す</button>
+      <button type="button" id="scoreOmrExportMusicXml">MusicXML (.musicxml) を書き出す</button>
+    </div>
+    <p class="panel-hint">スマホでは共有シート（Web Share）が使える場合、書き出しボタンからそのまま送れます。</p>
     <div class="file-dialog-actions">
       <button type="button" id="scoreOmrCancel">キャンセル</button>
-      <button type="button" id="scoreOmrApply" class="solid">この内容で取り込む</button>
+      <button type="button" id="scoreOmrApply" class="solid">エディタで開く</button>
     </div>
   </dialog>
   <dialog id="mediaDialog" class="settings-panel media-dialog" aria-labelledby="mediaHeading">
