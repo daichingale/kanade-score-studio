@@ -23,7 +23,7 @@ export async function readMusicXmlFile(filePath){
   return readFile(filePath, 'utf8');
 }
 
-export function parseScoreFromMusicXml(xml){
+export function parseMusicXmlImport(xml){
   bootXmlDom();
   const base = '../app/web/src/';
   require(base + 'notation.js');
@@ -31,5 +31,9 @@ export function parseScoreFromMusicXml(xml){
   require(base + 'percussion.js');
   require(base + 'samples.js');
   require(base + 'musicxml-import.js');
-  return global.KanadeMusicXMLImport.parse(xml).score;
+  return global.KanadeMusicXMLImport.parse(xml);
+}
+
+export function parseScoreFromMusicXml(xml){
+  return parseMusicXmlImport(xml).score;
 }

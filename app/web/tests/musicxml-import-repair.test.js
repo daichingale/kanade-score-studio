@@ -42,6 +42,36 @@ test('merges backup voice into playable measure',()=>{
   assert.equal(global.KanadeCore.usedTicks(score.measures[0]),TPQ*4);
 });
 
+test('picks primary voice among three instead of merging all',()=>{
+  const xml=wrap(`
+    <measure number="1">
+      <attributes><divisions>480</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      <note><voice>1</voice><pitch><step>C</step><octave>5</octave></pitch><duration>480</duration><type>quarter</type></note>
+      <note><voice>1</voice><pitch><step>D</step><octave>5</octave></pitch><duration>480</duration><type>quarter</type></note>
+      <note><voice>1</voice><pitch><step>E</step><octave>5</octave></pitch><duration>480</duration><type>quarter</type></note>
+      <note><voice>1</voice><pitch><step>F</step><octave>5</octave></pitch><duration>480</duration><type>quarter</type></note>
+      <backup><duration>1920</duration></backup>
+      <note><voice>2</voice><rest/><duration>1920</duration><type>whole</type></note>
+      <backup><duration>1920</duration></backup>
+      <note><voice>3</voice><pitch><step>G</step><octave>3</octave></pitch><duration>960</duration><type>half</type></note>
+    </measure>`);
+  const {score,warnings}=global.KanadeMusicXMLImport.parse(xml);
+  assert.equal(global.KanadeCore.usedTicks(score.measures[0]),TPQ*4);
+  assert.ok(warnings.some(w=>w.includes('主メロディ')));
+});
+
+test('shrinks overflowing bar by trimming tail note not whole measure',()=>{
+  const xml=wrap(`
+    <measure number="1">
+      <attributes><divisions>${TPQ}</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>${TPQ*4}</duration><type>whole</type></note>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>${TPQ}</duration><type>quarter</type></note>
+    </measure>`);
+  const {score,warnings}=global.KanadeMusicXMLImport.parse(xml);
+  assert.equal(global.KanadeCore.usedTicks(score.measures[0]),TPQ*4);
+  assert.ok(warnings.length);
+});
+
 test('parse does not throw on homr-like overlapping notes',()=>{
   const xml=wrap(`
     <measure number="1">
