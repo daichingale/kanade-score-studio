@@ -19,6 +19,23 @@ test('score tools do not use the collaboration remote path',()=>{
  assert.match(attach,/commit\(/);
 });
 
+test('writePhrase parses compact notation and writes across measures',()=>{
+ const score={...C.createScore(),instrument:'トランペット',instrumentKey:'trumpet'};
+ const before=freeze(score);
+ const out=Tools.run(score,'writePhrase',{part:'trumpet',measure:1,phrase:'G4 q G4 q C5 h | D5 q C5 q G4 h'});
+ assert.equal(freeze(score),before);
+ const part=out.document;
+ assert.notEqual(freeze(part),before);
+ const line=notes(part);
+ assert.ok(line.length>=6);
+ assert.equal(part.measures.length,2);
+});
+
+test('writePhrase returns a helpful error for unknown tokens',()=>{
+ const score=C.createScore();
+ assert.throws(()=>Tools.run(score,'writePhrase',{phrase:'X9 z'}),/読めません/);
+});
+
 test('metadata, tempo, key and meter edit a copy and keep the original',()=>{
  const score=C.createScore();
  const before=freeze(score);

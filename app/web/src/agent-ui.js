@@ -148,8 +148,22 @@
    const error=new Error(failure.error||'chat failed');
    error.status=response.status;error.body=failure;throw error;
   }
-  const reader=response.body.getReader(),decoder=new TextDecoder();
   const state=Agent.emptyStream();
+  if(payload.stream===false){
+   const body=await response.json();
+   if(typeof body?.error==='string'&&body.error.trim())state.error=body.error.trim();
+   Agent.absorbEvent(state,body?.message?body:{message:body});
+   if(state.content)onText?.(state.content);
+   return Agent.finishStream(state);
+  }
+  const reader=response.body?.getReader?.();
+  if(!reader){
+   const body=await response.json();
+   Agent.absorbEvent(state,body?.message?body:{message:body});
+   if(state.content)onText?.(state.content);
+   return Agent.finishStream(state);
+  }
+  const decoder=new TextDecoder();
   let buffer='';
   while(true){
    const chunk=await reader.read();

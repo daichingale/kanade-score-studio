@@ -24,7 +24,7 @@
   getScoreSummary:'楽譜の概要を確認',readMeasures:'小節を読む',listEnsembleTemplates:'編成テンプレートを確認',
   setMetadata:'曲名または作曲者を変更',setTempo:'テンポを変更',setKey:'調号を変更',setTimeSignature:'拍子を変更',
   addParts:'パートを追加',applyEnsembleTemplate:'編成テンプレートを適用',removePart:'パートを削除',
-  insertNotes:'音符を入力',insertRests:'休符を入力',transpose:'移調',addMeasures:'小節を追加',
+  insertNotes:'音符を入力',writePhrase:'フレーズを短いテキストで入力',insertRests:'休符を入力',transpose:'移調',addMeasures:'小節を追加',
   removeMeasures:'小節を削除',undoAiChange:'直前のAI編集を取り消し',exportMusicXML:'MusicXMLを書き出し',
   proposeInstrumentation:'編成を提案',arrangeMelody:'旋律を編成に分配',doublePart:'パートを重ねる',
   voiceChords:'和音を配置',checkRanges:'音域を確認',fixRanges:'音域に収める',getInstrumentRanges:'音域表を確認',
@@ -140,6 +140,60 @@
   const note=C.makeNote({step,alter,octave},den,dots);
   if(tieStart||flag(spec.tie))note.tieStart=true;
   return note;
+ }
+ const PHRASE_DEN={w:1,h:2,q:4,e:8,s:16,t:32,W:1,H:2,Q:4,E:8,S:16,T:32};
+ function parsePhraseDuration(code,fallback){
+  if(code===undefined||code===null||code==='')return integer(fallback??4,'音価',1,64);
+  const letter=String(code).trim();
+  if(/^\d+$/.test(letter))return integer(letter,'音価',1,64);
+  const den=PHRASE_DEN[letter]??PHRASE_DEN[letter.toLowerCase()];
+  if(!den)fail(`音価「${letter}」は w h q e s t か 1〜64 で指定してください`);
+  return den;
+ }
+ function phraseAlter(acc){
+  if(!acc)return 0;
+  if(acc==='#'||acc==='+'||acc==='♯')return 1;
+  if(acc==='-'||acc==='b'||acc==='♭')return -1;
+  return 0;
+ }
+ function parsePhraseSegments(phrase){
+  const text=String(phrase||'').trim();
+  if(!text)fail('phrase を指定してください');
+  const segments=text.split('|').map(part=>part.trim()).filter(Boolean);
+  if(!segments.length)fail('phrase を指定してください');
+  const hint='C5 q、Bb4 h、G4q、r4 のように書いてください。小節区切りは | です。';
+  return segments.map((segment,segIndex)=>{
+   const tokens=segment.match(/[^\s,;]+/g)||[];
+   if(!tokens.length)fail(`小節 ${segIndex+1} が空です。${hint}`);
+   const notes=[];
+   for(let index=0;index<tokens.length;){
+    const token=tokens[index];
+    const rest=token.match(/^(r|rest)([whqest]|\d+)?$/i);
+    if(rest){
+     notes.push({type:'rest',den:parsePhraseDuration(rest[2],4),dots:0});
+     index++;
+     continue;
+    }
+    const compact=token.match(/^([A-Ga-g])([#b♯♭+-]?)(\d+)([whqest])(\d)?$/i);
+    if(compact){
+     notes.push({step:compact[1].toUpperCase(),alter:phraseAlter(compact[2]),octave:integer(compact[3],'オクターブ',0,8),den:parsePhraseDuration(compact[4],4),dots:compact[5]?integer(compact[5],'付点',0,2):0});
+     index++;
+     continue;
+    }
+    const pitch=token.match(/^([A-Ga-g])([#b♯♭+-]?)(\d+)$/i);
+    if(pitch){
+     let den=4,dots=0;
+     const next=tokens[index+1];
+     if(next&&/^[whqest]\d?$/i.test(next)){den=parsePhraseDuration(next,4);dots=/\d$/.test(next)?integer(next.slice(-1),'付点',0,2):0;index+=2;}
+     else if(next&&/^\d+$/.test(next)){den=integer(next,'音価',1,64);index+=2;}
+     else index++;
+     notes.push({step:pitch[1].toUpperCase(),alter:phraseAlter(pitch[2]),octave:integer(pitch[3],'オクターブ',0,8),den,dots});
+     continue;
+    }
+    fail(`「${token}」が読めません。${hint}`);
+   }
+   return notes;
+  });
  }
  function parseSequence(list,kind){
   if(!Array.isArray(list)||!list.length||list.length>64)fail(`${kind}は1〜64個で指定してください`);
@@ -341,6 +395,33 @@
     const name=parts[index].instrument;
     const nextParts=parts.filter((_,item)=>item!==index);
     return {document:assemble(doc,nextParts),focusPart:Math.max(0,index-1),summary:`${name}を削除しました`};
+   }
+  },
+  writePhrase:{
+   description:'記譜音の旋律を短いテキストで書く。phrase は "G4 q G4 q C5 h | G4 q G4 q G4 h" のように音高＋音価。音価は w h q e s t（全二分四分八分十六分三十二分）または数字。休符は r4。小節区切りは |。',
+   parameters:{type:'object',properties:{part:{type:'string'},measure:{type:'integer'},beat:{type:'number'},phrase:{type:'string'}},required:['phrase']},
+   run(doc,args){
+    const index=resolvePart(doc,args.part);
+    const name=partsOf(doc)[index].instrument;
+    const segments=parsePhraseSegments(args.phrase);
+    const start=integer(args.measure??1,'小節',1,500)-1;
+    const beat=args.beat;
+    let current=C.copy(doc),focus=index,count=0;
+    for(let bar=0;bar<segments.length;bar++){
+     const measure=start+bar;
+     let part=partsOf(current)[index];
+     while(measure>=part.measures.length){
+      const added=operations.addMeasures.run(current,{at:part.measures.length+1,count:1});
+      current=added.document;
+      part=partsOf(current)[index];
+     }
+     const notes=segments[bar].map(note=>note.type==='rest'?{type:'rest',den:note.den,dots:note.dots||0}:{step:note.step,alter:note.alter,octave:note.octave,den:note.den,dots:note.dots||0});
+     const placed=operations.insertNotes.run(current,{part:args.part??name,measure:measure+1,beat:bar===0?beat:1,notes});
+     current=placed.document;
+     focus=placed.focusPart??focus;
+     count+=notes.length;
+    }
+    return {document:current,focusPart:focus,summary:`${name}に ${segments.length} 小節・${count} 音を入力しました`};
    }
   },
   insertNotes:{
