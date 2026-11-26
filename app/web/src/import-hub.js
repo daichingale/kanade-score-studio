@@ -30,7 +30,16 @@
   async function ensureOmr(){
     await ensureCore();
     if(omrLoaded)return;
-    await loadScript('src/omr-recognize.js');
+    await Promise.all([
+      loadScript('src/omr-image.js'),
+      loadScript('src/omr-staff.js'),
+      loadScript('src/omr-glyphs.js'),
+      loadScript('src/omr-priors.js'),
+      loadScript('src/omr-classic.js'),
+      loadScript('src/omr-pdf.js'),
+      loadScript('src/omr-ml.js'),
+      loadScript('src/omr-recognize.js')
+    ]);
     omrLoaded=true;
   }
 
@@ -78,11 +87,17 @@
     async readImagePayload(parsed){
       await ensureOmr();
       let bytes=parsed.bytes,mime=parsed.mime||'image/jpeg';
+      let image;
       if(parsed.kind===root.KanadeImportPipeline.kinds.pdf){
-        bytes=root.KanadeOMR.extractPdfImage(bytes);
-        mime='image/jpeg';
-      }
-      const image=await decodeImage(bytes,mime);
+        try{
+          await loadScript('src/omr-pdf.js');
+          image=await root.KanadeOmrPdf.renderFirstPage(bytes);
+        }catch(_){
+          bytes=root.KanadeOMR.extractPdfImage(bytes);
+          mime='image/jpeg';
+          image=await decodeImage(bytes,mime);
+        }
+      }else image=await decodeImage(bytes,mime);
       const recognition=root.KanadeOMR.recognizeRGBA(image);
       hub.lastRecognition=recognition;
       hub.openOmrReview(recognition);
@@ -207,8 +222,9 @@
       omr.close();
     }));
     $('scoreOmrCancel')?.addEventListener('click',()=>omr.close());
-    $('scoreOmrExportMidi')?.addEventListener('click',()=>hub.hooks.attempt?.(()=>hub.exportReviewed('midi')));
-    $('scoreOmrExportMusicXml')?.addEventListener('click',()=>hub.hooks.attempt?.(()=>hub.exportReviewed('musicxml')));
+    const runExport=kind=>hub.exportReviewed(kind).catch(error=>hub.hooks.toast?.(error.message,true));
+    $('scoreOmrExportMidi')?.addEventListener('click',()=>runExport('midi'));
+    $('scoreOmrExportMusicXml')?.addEventListener('click',()=>runExport('musicxml'));
   }
 
   setupUi();
