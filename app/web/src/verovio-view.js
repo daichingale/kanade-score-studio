@@ -176,9 +176,22 @@
     applySelection(host,selection);
     markBusy(false);
     host.dispatchEvent(new root.CustomEvent('kanade-engraved',{bubbles:true,detail:{ms:result.ms,pages:result.pages}}));
+    lastFlushAt=performance.now();
+    editBurst=0;
   }
-  let paintedToken=0,queued=null;
+  let paintedToken=0,queued=null,rafId=0,lastFlushAt=0,editBurst=0;
+  const MIN_GAP=48,MAX_BURST_GAP=12;
+  function scheduleFlush(){
+    if(rafId)return;
+    const now=performance.now();
+    const since=now-lastFlushAt;
+    const gap=editBurst>2?Math.min(MIN_GAP,MAX_BURST_GAP+editBurst):MIN_GAP;
+    if(since>=gap){rafId=root.requestAnimationFrame(flush);return;}
+    clearTimeout(timer);
+    timer=setTimeout(()=>{timer=0;rafId=root.requestAnimationFrame(flush);},gap-since);
+  }
   function flush(){
+    rafId=0;clearTimeout(timer);timer=0;
     const job=queued;queued=null;
     if(!job||!enabled)return;
     const built=Mei.meiForPart(job.score);
@@ -199,8 +212,8 @@
     if(!enabled)return;
     if(score===paintedScore&&host.querySelector('.verovio-pages')){applySelection(host,selection);return;}
     queued={host,score,selection};
-    clearTimeout(timer);
-    timer=setTimeout(flush,180);
+    editBurst++;
+    scheduleFlush();
   }
   function hitTest(host,point,score,den,dots,extras={}){
     if(!point)return null;
@@ -271,5 +284,14 @@
     try{return await engrave(xml,'print');}
     catch{return engrave(Mei.meiForParts(parts).mei,'print');}
   }
-  return {setEnabled,isEnabled,storageKey,sync,hitTest,ghostAt,paintGhost,exportMarkup,engrave,options,readBox};
+  function playbackGrid(measureEl,score,mi){
+    const box=readBox(measureEl);
+    if(!box)return null;
+    const cap=C.barTicks(score,mi);
+    const points=engravedPoints(measureEl);
+    const grid=points.length?[[0,leadingEdge(measureEl,box)],...points.map(p=>[p.tick,p.x]),[cap,box.x1]]
+      :[[0,box.x0],[cap,box.x1]];
+    return {top:box.top,grid:grid.map(([tick,x])=>`${tick}:${x}`).join(',')};
+  }
+  return {setEnabled,isEnabled,storageKey,sync,hitTest,ghostAt,paintGhost,exportMarkup,engrave,options,readBox,playbackGrid};
 });

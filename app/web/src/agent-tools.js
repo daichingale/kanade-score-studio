@@ -6,10 +6,11 @@
  const Ex=root.KanadeExport||(typeof require==='function'?require('./musicxml.js'):null);
  const Arrange=root.KanadeArrange||(typeof require==='function'?require('./agent-arrange.js'):null);
  const Pop=root.KanadePopProgression||(typeof require==='function'?require('./pop-progression.js'):null);
- const api=factory(C,B,I,Ex,Arrange);
+ const Spark=root.KanadeInspirationSpark||(typeof require==='function'?require('./inspiration-spark.js'):null);
+ const api=factory(C,B,I,Ex,Arrange,Spark);
  if(typeof module==='object'&&module.exports)module.exports=api;
  root.KanadeAgentTools=api;
-})(typeof globalThis!=='undefined'?globalThis:this,function(C,B,I,Ex,Arrange){
+})(typeof globalThis!=='undefined'?globalThis:this,function(C,B,I,Ex,Arrange,Spark){
  'use strict';
  const DENOMS=new Set([1,2,4,8,16,32,64]);
  const KEY_NAMES={
@@ -27,7 +28,8 @@
   removeMeasures:'小節を削除',undoAiChange:'直前のAI編集を取り消し',exportMusicXML:'MusicXMLを書き出し',
   proposeInstrumentation:'編成を提案',arrangeMelody:'旋律を編成に分配',doublePart:'パートを重ねる',
   voiceChords:'和音を配置',checkRanges:'音域を確認',fixRanges:'音域に収める',getInstrumentRanges:'音域表を確認',
-  applyPopProgression:'ポップ進行を伴奏として入力'
+  applyPopProgression:'ポップ進行を伴奏として入力',
+  inspireSpark:'作曲のひらめきを生成（必要なら楽譜に反映）'
  };
 
  function fail(message){throw new Error(message);}
@@ -512,6 +514,34 @@
    description:'開いているパートの実用音域を返す。levelは初級、中級、上級。',
    parameters:{type:'object',properties:{level:{type:'string'}}},
    run(doc,args){return {summary:Arrange.describeRanges(partsOf(doc),Arrange.levelOf(args.level))};}
+  },
+  inspireSpark:{
+   description:'調・テンポ・拍子・ムード・コード進行・短いモチーフをまとめた「ひらめき」を生成する。seed で再現可能。apply を true にすると採用して書き込む。',
+   parameters:{type:'object',properties:{
+    seed:{type:'integer'},mood:{type:'string'},apply:{type:'boolean'},from:{type:'integer'},part:{type:'integer'}
+   }},
+   confirm(doc,args){
+    if(!args.apply)return null;
+    return 'ひらめきの内容を現在の楽譜へ書き込みます。';
+   },
+   run(doc,args){
+    if(!Spark)fail('ひらめき機能が読み込まれていません');
+    const seed=Number.isInteger(args.seed)?args.seed:((Math.random()*0xffffffff)>>>0);
+    const spark=Spark.rollSpark(seed);
+    if(args.mood&&Spark.MOODS.includes(args.mood))spark.mood=args.mood;
+    const lines=[
+     `ムード: ${spark.mood}`,
+     `調: ${spark.key} / ${spark.mode}`,
+     `テンポ: ${spark.tempo}`,
+     `拍子: ${spark.time.num}/${spark.time.den}`,
+     `進行: ${spark.progression.timeline.map(t=>t.symbol).join(' - ')}`,
+     `ヒント: ${spark.scene} / ${spark.constraints.join(' · ')}`
+    ];
+    if(!args.apply)return {summary:lines.join('\n'),spark};
+    const out=Spark.applySparkDocument(doc,spark,{from:args.from||1,part:args.part||1});
+    Spark.pushHistory(spark);
+    return {document:out.document,focusPart:out.focusPart,summary:`${lines[0]}\n楽譜に反映しました。`,spark};
+   }
   },
   applyPopProgression:{
    description:'学習済みポップ進行モデルから和音・コード記号を入力する。partは1始まり。progressionは I-V-vi-IV、IV-V-iii-vi、vi-IV-I-V、canon、komuro、auto など。gridは bar か half。voicingは block、root5、arpeggio。',

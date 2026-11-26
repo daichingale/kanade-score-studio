@@ -258,9 +258,27 @@
         const startAt=Math.max(0,Math.min(plan.duration-.001,((options.resumeAt??plan.start)-plan.start)*plan.secondsPerTick));
         const cycles=[{plan,origin:ctx.currentTime+.035,index:0,skip:startAt,pass:1}];
         cycles[0].origin-=startAt;
+        const scheduleClick=(time,accent)=>{
+          const osc=ctx.createOscillator(),gain=ctx.createGain();
+          osc.frequency.value=accent?1240:940;
+          gain.gain.setValueAtTime(accent?.09:.06,time);
+          gain.gain.exponentialRampToValueAtTime(.0001,time+.045);
+          osc.connect(gain);gain.connect(this.master||ctx.destination);
+          const voice={osc,gain};this.voices.add(voice);
+          osc.onended=()=>{this.voices.delete(voice);osc.disconnect();gain.disconnect();};
+          osc.start(time);osc.stop(time+.05);
+        };
         const schedule=()=>{
           if(version!==this.generation)return;
           const now=ctx.currentTime,horizon=now+.105;
+          if(options.metronome?.enabled){
+            if(!session.metro)session.metro={next:now,beat:0,sec:60/options.metronome.tempo};
+            const metro=session.metro;
+            while(metro.next<=horizon){
+              scheduleClick(metro.next,metro.beat%4===0);
+              metro.beat++;metro.next+=metro.sec;
+            }
+          }
           while(cycles.length>1&&cycles[1].origin<=now)cycles.shift();
           let cycle=cycles.at(-1);
           if(cycle.origin+cycle.plan.duration<now&&options.loop){
