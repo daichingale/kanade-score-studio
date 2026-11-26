@@ -64,6 +64,45 @@ test('tool calls are read from streamed messages, JSON blocks, and tool_call tag
  const tagged=Agent.finishStream({content:'<tool_call>{"name":"insertNotes","arguments":{"measure":1,"notes":[{"step":"C","octave":5,"den":4}]}}</tool_call>',calls:[],error:''});
  assert.equal(tagged.toolCalls[0].name,'insertNotes');
  assert.deepEqual(Agent.parseToolCallsFromContent('[{"name":"getScoreSummary","arguments":{}}]')[0].name,'getScoreSummary');
+ const nested=Agent.parseToolCallsFromContent('portun\n{"name":"insertNotes","arguments":{"measure":1,"notes":[{"step":"G","octave":4,"den":"w"}]}}');
+ assert.equal(nested[0].name,'insertNotes');
+ assert.equal(nested[0].arguments.notes[0].step,'G');
+});
+
+test('write requests keep the user ask last and shrink the tool list',()=>{
+ const history=[{role:'user',content:'トランペットに4小節のファンファーレを書いて'}];
+ Agent.registerTool({name:'writePhrase',description:'phrase',handler:()=>({})});
+ Agent.registerTool({name:'insertNotes',description:'notes',handler:()=>({})});
+ Agent.registerTool({name:'getScoreSummary',description:'summary',handler:()=>({})});
+ Agent.registerTool({name:'proposeEnsembleOptions',description:'ensemble',handler:()=>({})});
+ try{
+  const payload=Agent.buildChatPayload({model:'qwen2.5:7b',history,summary:'曲名: テスト',includeTools:true});
+  assert.equal(payload.stream,false);
+  assert.equal(payload.messages.at(-1).role,'user');
+  assert.match(payload.messages.at(-1).content,/ファンファーレ/);
+  assert.match(payload.messages[1].content,/参照情報/);
+  assert.deepEqual(payload.tools.map(t=>t.function.name).sort(),['getScoreSummary','insertNotes','writePhrase'].sort());
+  assert.equal(Agent.writeIntent(history[0].content),true);
+ }finally{
+  for(const name of ['writePhrase','insertNotes','getScoreSummary','proposeEnsembleOptions'])Agent.unregisterTool(name);
+ }
+});
+
+test('runTurn force-writes when the model only chats after a write request',async()=>{
+ let round=0,executed=null;
+ const result=await Agent.runTurn({
+  messages:[{role:'user',content:'トランペットに4小節のファンファーレを書いて'}],
+  async chat(_messages,{forceWrite}){
+   round++;
+   if(!forceWrite)return {content:'ご質問ですか？',toolCalls:[]};
+   return {content:'',toolCalls:[{name:'writePhrase',arguments:{part:'トランペット',measure:1,phrase:'G4 q C5 q'}}]};
+  },
+  async execute(call){executed=call;return {ok:true,summary:'書きました',wrote:1};}
+ });
+ assert.ok(round>=2);
+ assert.equal(executed?.name,'writePhrase');
+ assert.equal(result.writes,1);
+ assert.equal(result.forcedWrite,true);
 });
 
 test('runTurn executes tool calls embedded only in assistant text',async()=>{
