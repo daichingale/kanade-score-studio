@@ -49,12 +49,17 @@ HOST=0.0.0.0 npm run dev
   - **oemer CLI** は内部が最適化 ON のままのため、本 VM では 0/15 失敗。`ORT_DISABLE_ALL=1` も CLI には効かない（`oemer` 側が `SessionOptions` を渡していない）。
   - ベンチの `ml_node` は 15/15 パイプライン成功だが F1 は 0% — ラスタ→イベント後段は homr には劣る。
 
+## phone 写真の前処理（PC エンジン）
+
+`scripts/omr-engine-prep.mjs` — **Audiveris + phone** のみデフォルトでアップスケール・コントラスト。homr はオリジナル JPEG のまま（過剰前処理で F1 が下がるため）。
+
 ## ベンチマーク
 
 ```bash
 npm install
-node scripts/omr-bench.mjs --limit=15          # 全エンジン
+node scripts/omr-bench.mjs --limit=15          # 全エンジン + pc_best_of
 node scripts/omr-bench.mjs --no-v2 --no-ml   # PC エンジンのみ（高速）
+node scripts/omr-bench.mjs --no-prep            # 前処理オフ比較
 ```
 
 結果: `docs/omr-bench-results.json` / `.md`

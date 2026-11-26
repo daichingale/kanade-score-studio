@@ -11,35 +11,91 @@
   const markList=Object.values(C.Symbols.byKey).filter(entry=>!['custom','chordSymbol'].includes(entry.key));
   const filled=ticks=>C.exactDurations(ticks).map(({den,dots})=>C.makeRest(den,dots));
 
-  function repairEventList(events,capacity,warn){
-    if(!events?.length)return [];
-    const out=[];
-    let used=0;
-    for(const ev of events){
-      let len;
-      try{len=C.eventTicks(ev);}catch(_){warn('不正な音符を省略しました');continue;}
-      if(used>=capacity)break;
-      if(used+len>capacity){
-        const room=capacity-used;
-        if(room>=C.TPQ/32){
-          warn('小節を超える音価を切り詰めました');
-          for(const {den,dots} of C.exactDurations(room)){
-            if(ev.type==='note'){
-              const pitch=ev.pitches?.[0]||ev.pitch||{step:'C',octave:4,alter:0};
-              out.push(ev.pitches?.length>1?
-                {...C.makeNote(pitch,den,dots),pitches:ev.pitches.map(p=>({...p,id:C.uid()}))}:
-                C.makeNote(pitch,den,dots));
-            }else out.push(C.makeRest(den,dots));
-          }
-        }
-        used=capacity;
+  function eventLen(ev){
+    try{return C.eventTicks(ev);}catch(_){return 0;}
+  }
+  function cloneEvent(ev){
+    if(ev.type==='note'){
+      const pitch=ev.pitches?.[0]||ev.pitch;
+      const pitches=ev.pitches?.map(p=>({...p}))||[{...pitch,id:ev.pitch?.id||C.uid()}];
+      return {...C.makeNote(pitch,ev.den,ev.dots),pitches,tieStart:!!ev.tieStart,tieStop:!!ev.tieStop,lyric:ev.lyric,articulations:ev.articulations,tuplet:ev.tuplet?{...ev.tuplet}:undefined,stemDirection:ev.stemDirection};
+    }
+    return C.makeRest(ev.den,ev.dots);
+  }
+  function splitEvent(ev,len){
+    const segs=C.exactDurations(len);
+    if(ev.type==='note'){
+      const pitch=ev.pitches?.[0]||ev.pitch||{step:'C',octave:4,alter:0};
+      const pitches=ev.pitches?.map(p=>({...p,id:C.uid()}))||[{...pitch,id:C.uid()}];
+      return segs.map(({den,dots},i)=>({...C.makeNote(pitch,den,dots),pitches,tieStop:i>0||!!ev.tieStop,tieStart:i<segs.length-1||!!ev.tieStart}));
+    }
+    return segs.map(({den,dots})=>C.makeRest(den,dots));
+  }
+  function shrinkEventsToFit(events,capacity,warn){
+    let out=events.map(cloneEvent);
+    let used=out.reduce((s,ev)=>s+eventLen(ev),0);
+    while(used>capacity&&out.length){
+      const last=out[out.length-1];
+      const lastLen=eventLen(last);
+      const over=used-capacity;
+      if(last.type==='rest'){
+        out.pop();used-=lastLen;continue;
+      }
+      if(lastLen>over&&lastLen-over>=C.TPQ/32){
+        out.splice(out.length-1,1,...splitEvent(last,lastLen-over));
+        warn('小節末の音価を調整しました');
+        used=out.reduce((s,ev)=>s+eventLen(ev),0);
         break;
       }
-      out.push(ev);
-      used+=len;
+      out.pop();
+      used-=lastLen;
+      warn('小節を超える音価を切り詰めました');
     }
+  return out;
+  }
+  function repairEventList(events,capacity,warn){
+    const valid=(events||[]).filter(ev=>eventLen(ev)>0);
+    if(!valid.length){
+      if(capacity>0)return C.fillRests(capacity).map(r=>C.makeRest(r.den,r.dots));
+      return [];
+    }
+    let used=valid.reduce((s,ev)=>s+eventLen(ev),0);
+    if(used>capacity){
+      let shrunk=shrinkEventsToFit(valid,capacity,warn);
+      for(let guard=0;guard<12&&shrunk.reduce((s,ev)=>s+eventLen(ev),0)>capacity;guard++)
+        shrunk=shrinkEventsToFit(shrunk,capacity,warn);
+      used=shrunk.reduce((s,ev)=>s+eventLen(ev),0);
+      const out=[...shrunk];
+      if(used<capacity)out.push(...C.fillRests(capacity-used).map(r=>C.makeRest(r.den,r.dots)));
+      return out;
+    }
+    const out=[...valid.map(cloneEvent)];
     if(used<capacity)out.push(...C.fillRests(capacity-used).map(r=>C.makeRest(r.den,r.dots)));
     return out;
+  }
+  function voiceMelodyScore(entries){
+    let melodic=0,rests=0,notes=0,chords=0;
+    for(const e of entries){
+      const len=Math.max(0,(e.end??0)-(e.at??0));
+      if(e.rest)rests+=len;
+      else{
+        melodic+=len;
+        notes++;
+        if(e.chord?.length)chords++;
+      }
+    }
+    return melodic+chords*2-notes*0.5-rests*0.25;
+  }
+  function pickVoiceIds(map,capacity,warn){
+    const ids=[...map.keys()].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+    if(ids.length<=2)return ids.length===1&&ids[0]==='2'?['1','2']:ids;
+    const ranked=ids.map(id=>({id,score:voiceMelodyScore(map.get(id)||[])})).sort((a,b)=>b.score-a.score);
+    warn('複数声部から主メロディ声部を選択しました');
+    const pick=[ranked[0].id];
+    const second=ranked[1];
+    if(second&&second.score>Math.max(C.TPQ/4,capacity*0.12))pick.push(second.id);
+    else if(ranked.length>2)warn('伴奏声部を省略しました');
+    return pick;
   }
 
   function repairPartMeasures(part,warn){
@@ -264,18 +320,11 @@
         if(attr(bar,'implicit')==='yes'&&tick(cursor)<capacity)warn('弱起・短縮小節は拍子に合わせて末尾に休符を補いました');
         for(const [i,track] of tracks.entries()){
           const map=voices[i],target=track.measures[mi];
-          const ids=[...map.keys()].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
-          if(map.size>2){
-            warn('3声部以上を第1声部に統合しました');
-            const merged=ids.flatMap(id=>map.get(id)||[]).sort((a,b)=>a.at-b.at);
-            target.events=buildVoice(merged,capacity,track,open[i],mi,0,warn);
-          }else{
-            if(ids.length===1&&ids[0]==='2')ids.unshift('1');
-            for(const [voice,id] of ids.entries()){
-              const events=buildVoice(map.get(id)||[],capacity,track,open[i],mi,voice,warn);
-              if(voice===0)target.events=events;
-              else if(events.length)target.voice2=events;
-            }
+          const ids=pickVoiceIds(map,capacity,warn);
+          for(const [voice,id] of ids.entries()){
+            const events=buildVoice(map.get(id)||[],capacity,track,open[i],mi,voice,warn);
+            if(voice===0)target.events=events;
+            else if(events.length)target.voice2=events;
           }
           if(target.directions)target.directions=target.directions.filter(mark=>{
             if(mark.tick>=0&&mark.tick<capacity)return true;
@@ -319,7 +368,17 @@
       let at=note.at,end=note.end;
       if(!Number.isFinite(at)||at<0)at=position;
       if(at<position-1){warn('音符の重なりを解消しました');at=position;}
-      if(end>capacity){warn('拍子を超える音符を短縮しました');end=capacity;}
+      if(end>capacity){
+        const span=end-at;
+        if(span>C.TPQ/32&&note.den){
+          const typeLen=C.durationTicks(note.den,Math.min(note.dots,2));
+          if(typeLen>0&&typeLen<span){
+            const ratio=Math.round(span/typeLen);
+            if(ratio>=2&&ratio<=4)end=at+typeLen*Math.min(ratio,Math.ceil((capacity-at)/typeLen));
+          }
+        }
+        if(end>capacity){warn('拍子を超える音符を短縮しました');end=capacity;}
+      }
       if(end<=at){warn('無効な音価を省略しました');continue;}
       note.at=at;
       note.end=end;

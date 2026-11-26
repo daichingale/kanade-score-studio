@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { constants as fsConstants } from 'node:fs';
 import { readMusicXmlFile } from './omr-xml-node.mjs';
+import { prepareEngineImage, cleanupPrep } from './omr-engine-prep.mjs';
 
 export const OMR_BODY_LIMIT = 12 * 1024 * 1024;
 export const OMR_ALLOWED_MIME = new Set([
@@ -149,11 +150,65 @@ export async function recognizeOnPc({ bytes, mime, filename, engine = 'auto' }) 
   }
 }
 
-export async function recognizeImageFile(imagePath, engine = 'auto') {
-  const bytes = await readFile(imagePath);
-  const ext = path.extname(imagePath).toLowerCase();
-  const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
-  return recognizeOnPc({ bytes, mime, filename: path.basename(imagePath), engine });
+async function runPcEngineOnPath(imagePath, pick, workDir) {
+  if (pick === 'homr') return await runHomr(imagePath);
+  if (pick === 'audiveris') return await runAudiveris(imagePath, workDir);
+  if (pick === 'oemer') return await runOemer(imagePath, workDir);
+  throw new Error(`未対応エンジン: ${pick}`);
+}
+
+export async function recognizeImageFile(imagePath, engine = 'auto', options = {}) {
+  const { prep = false, variant = 'clean' } = options;
+  const engines = await detectEngines();
+  const pick = engine === 'auto' ? engines.prefer : engine;
+  if (!pick || (pick === 'oemer' && !engines.oemer) || (pick === 'homr' && !engines.homr) || (pick === 'audiveris' && !engines.audiveris)) {
+    throw new Error('PC エンジンが利用できません');
+  }
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'kanade-omr-'));
+  let prepInfo = null;
+  try {
+    let usePath = imagePath;
+    if (prep) {
+      prepInfo = await prepareEngineImage(imagePath, { engine: pick, variant });
+      usePath = prepInfo.path;
+    }
+    return await runPcEngineOnPath(usePath, pick, workDir);
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+    await cleanupPrep(prepInfo);
+  }
+}
+
+/** Run homr + Audiveris when available; return XML from fewer import-repair warnings. */
+export async function recognizeImageFileBestOf(imagePath, options = {}) {
+  const { prep = true, variant = 'clean' } = options;
+  const engines = await detectEngines();
+  const tries = [];
+  if (engines.homr) tries.push('homr');
+  if (engines.audiveris) tries.push('audiveris');
+  if (!tries.length) throw new Error('homr / Audiveris が利用できません');
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'kanade-omr-'));
+  const candidates = [];
+  try {
+    for (const pick of tries) {
+      let prepInfo = null;
+      try {
+        let usePath = imagePath;
+        if (prep) {
+          prepInfo = await prepareEngineImage(imagePath, { engine: pick, variant });
+          usePath = prepInfo.path;
+        }
+        const result = await runPcEngineOnPath(usePath, pick, workDir);
+        candidates.push({ ...result, engine: pick });
+      } catch { /* try next */ }
+      finally { await cleanupPrep(prepInfo); }
+    }
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
+  if (!candidates.length) throw new Error('PC OMR がすべて失敗しました');
+  if (candidates.length === 1) return candidates[0];
+  return { ...candidates[0], alternatives: candidates.slice(1), engine: 'best_of' };
 }
 
 export function prepareOmrRequest(body) {

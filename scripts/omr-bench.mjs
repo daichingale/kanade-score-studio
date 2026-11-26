@@ -11,8 +11,8 @@ import { createRequire } from 'node:module';
 import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
 import { buildCorpus, truthEvents } from './omr-bench-corpus.mjs';
 import { recognizeMlNode } from './omr-ml-node.mjs';
-import { bootXmlDom, parseScoreFromMusicXml } from './omr-xml-node.mjs';
-import { detectEngines, recognizeImageFile } from './omr-pc.mjs';
+import { bootXmlDom, parseMusicXmlImport } from './omr-xml-node.mjs';
+import { detectEngines, recognizeImageFile, recognizeImageFileBestOf } from './omr-pc.mjs';
 
 const require = createRequire(import.meta.url);
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -26,6 +26,8 @@ const noMl = args.has('--no-ml');
 const noAudiveris = args.has('--no-audiveris');
 const noHomr = args.has('--no-homr');
 const noV2 = args.has('--no-v2');
+const noPrep = args.has('--no-prep');
+const noBestOf = args.has('--no-bestof');
 
 function boot(){
   require('../app/web/src/core.js');
@@ -95,16 +97,38 @@ function recognitionToEvents(result, score){
   return out;
 }
 
+const REPAIR_WARN=/短縮|切り詰め|統合|省略|調整|重なり|連符|超える|修復|伴奏声部/i;
+
+function importPenalty(warnings){
+  return (warnings||[]).reduce((n,w)=>n+(REPAIR_WARN.test(w)?2:1),0);
+}
+
 function scoreEventsFromMusicXml(xml){
   bootXmlDom();
-  const score = parseScoreFromMusicXml(xml);
+  const { score } = parseMusicXmlImport(xml);
   return truthEvents(score).events;
 }
 
-async function engineEventsFromFile(imagePath, engine){
-  const { musicxml } = await recognizeImageFile(imagePath, engine);
+function scoreEventsWithPenalty(xml){
+  const parsed = parseMusicXmlImport(xml);
+  return { events: truthEvents(parsed.score).events, penalty: importPenalty(parsed.warnings), warnings: parsed.warnings };
+}
+
+async function engineEventsFromFile(imagePath, engine, variant){
+  const prep = !noPrep && variant === 'phone' && engine === 'audiveris';
+  const { musicxml } = await recognizeImageFile(imagePath, engine, { prep, variant });
   if (!musicxml) throw new Error(`${engine} が MusicXML を返しませんでした`);
   return scoreEventsFromMusicXml(musicxml);
+}
+
+async function engineEventsBestOfFile(imagePath, variant){
+  const { musicxml, alternatives } = await recognizeImageFileBestOf(imagePath, { prep: !noPrep, variant });
+  const scored = [scoreEventsWithPenalty(musicxml)];
+  for (const alt of alternatives || []) {
+    if (alt.musicxml) scored.push(scoreEventsWithPenalty(alt.musicxml));
+  }
+  scored.sort((a, b) => a.penalty - b.penalty);
+  return scored[0].events;
 }
 
 async function writePhoneJpeg(pngBuffer, outPath){
@@ -201,7 +225,17 @@ async function main(){
       for (const engine of pcEngines) {
         const method = engine === 'audiveris' ? 'audiveris' : engine === 'homr' ? 'homr_cli' : 'oemer_cli';
         try {
-          const predicted = await engineEventsFromFile(filePath, engine);
+          const predicted = await engineEventsFromFile(filePath, engine, variant);
+          const m = Align.align(truth, predicted, { barTicks });
+          rows.push({ id: item.id, variant, method, ...m });
+        } catch (error) {
+          rows.push({ id: item.id, variant, method, error: error.message, f1: 0, pitchAcc: 0, durationAcc: 0 });
+        }
+      }
+      if (!noBestOf && engines.homr && engines.audiveris) {
+        const method = 'pc_best_of';
+        try {
+          const predicted = await engineEventsBestOfFile(filePath, variant);
           const m = Align.align(truth, predicted, { barTicks });
           rows.push({ id: item.id, variant, method, ...m });
         } catch (error) {
@@ -222,7 +256,7 @@ async function main(){
     methods: {},
     beforeAfter: {}
   };
-  const methodNames = ['ground_truth', 'audiveris', 'homr_cli', 'oemer_cli', 'ml_node', 'v2_before', 'v2_after'];
+  const methodNames = ['ground_truth', 'audiveris', 'homr_cli', 'pc_best_of', 'oemer_cli', 'ml_node', 'v2_before', 'v2_after'];
   summary.engines = engines;
   for (const method of methodNames) {
     if (method === 'ground_truth') {
@@ -238,7 +272,14 @@ async function main(){
   }
   summary.beforeAfter = {
     phoneF1Delta: summary.methods.v2_after?.phone?.f1 - summary.methods.v2_before?.phone?.f1,
-    cleanF1Delta: summary.methods.v2_after?.clean?.f1 - summary.methods.v2_before?.clean?.f1
+    cleanF1Delta: summary.methods.v2_after?.clean?.f1 - summary.methods.v2_before?.clean?.f1,
+    homrVsBaseline: {
+      baselineRef: 'main@4ff62e4 (PR #12 import repair)',
+      homrCleanF1: summary.methods.homr_cli?.clean?.f1,
+      homrPhoneF1: summary.methods.homr_cli?.phone?.f1,
+      baselineHomrCleanF1: 0.801973581973582,
+      baselineHomrPhoneF1: 0.8050505050505051
+    }
   };
   summary.successRates = {};
   const corpusN = corpus.length;
