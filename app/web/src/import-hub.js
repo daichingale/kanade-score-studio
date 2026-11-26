@@ -22,7 +22,8 @@
     await Promise.all([
       loadScript('src/midi-import.js'),
       loadScript('src/import-pipeline.js'),
-      loadScript('src/import-export.js')
+      loadScript('src/import-export.js'),
+      loadScript('src/musicxml-import.js')
     ]);
     depsReady=true;
   }
@@ -36,9 +37,17 @@
       loadScript('src/omr-glyphs.js'),
       loadScript('src/omr-priors.js'),
       loadScript('src/omr-classic.js'),
-      loadScript('src/omr-pdf.js'),
+      loadScript('src/omr-ml-manifest.js'),
+      loadScript('src/omr-ml-cache.js'),
+      loadScript('src/omr-ml-masks.js'),
       loadScript('src/omr-ml.js'),
-      loadScript('src/omr-recognize.js')
+      loadScript('src/omr-ml-runtime.js'),
+      loadScript('src/omr-pc-client.js'),
+      loadScript('src/omr-router.js'),
+      loadScript('src/omr-pdf.js'),
+      loadScript('src/omr-recognize.js'),
+      loadScript('src/omr-fixture-render.js'),
+      loadScript('src/omr-eval.js')
     ]);
     omrLoaded=true;
   }
@@ -98,10 +107,40 @@
           image=await decodeImage(bytes,mime);
         }
       }else image=await decodeImage(bytes,mime);
-      const recognition=root.KanadeOMR.recognizeRGBA(image);
+      hub.lastPayload={bytes,mime,filename:parsed.filename||'scan',image};
+      const mode=root.KanadeOmrRouter?.loadMode?.()||'auto';
+      hub.syncOmrModeUi(mode);
+      const recognition=await hub.runOmrRecognition({image,bytes,mime,filename:parsed.filename,mode});
       hub.lastRecognition=recognition;
       hub.openOmrReview(recognition);
       return {kind:'omr',pending:true,warnings:recognition.warnings};
+    },
+    async runOmrRecognition({image,bytes,mime,filename,mode,mlConsent=false}={}){
+      if(!root.KanadeOmrRouter)throw Error('OMR ルーターが未読込です');
+      try{
+        return await root.KanadeOmrRouter.recognizeImage(image,{
+          mode,
+          bytes,mime,filename,
+          mlConsent,
+          uiRoot:document.getElementById('scoreOmrMlPanel')
+        });
+      }catch(error){
+        if(error.message==='ml-consent-required'){
+          const label=`高精度モードを有効にする（${root.KanadeOmrMlRuntime.manifestSize()} ダウンロード）`;
+          $('scoreOmrMlConsent')?.setAttribute('data-label',label);
+          $('scoreOmrMlPanel')?.showPopover?.();
+          throw Error('高精度モードのダウンロード同意が必要です。「高精度ON」から開始してください');
+        }
+        throw error;
+      }
+    },
+    syncOmrModeUi(mode){
+      const sel=$('scoreOmrMode');
+      if(sel)sel.value=mode;
+      const pcBtn=$('scoreOmrPcBtn');
+      root.KanadeOmrPcClient?.discover?.().then(found=>{
+        if(pcBtn)pcBtn.hidden=!found;
+      }).catch(()=>{if(pcBtn)pcBtn.hidden=true;});
     },
     openOmrReview(recognition){
       if(recognition.bitmap?.data?.length)hub.lastRecognition=recognition;
@@ -150,10 +189,14 @@
       return root.KanadeOMR.scoreFromNotes(selected,{title:label});
     },
     commitOmr(label='写真から取り込み'){
+      if(hub.lastRecognition?.scoreDraft){
+        const draft=hub.lastRecognition.scoreDraft;
+        const score={...draft,title:(label||draft.title||'写真から取り込み').slice(0,200)};
+        return {score,warnings:hub.lastRecognition.warnings||[]};
+      }
       const score=hub.reviewedScore(label);
-      return {score,warnings:[
-        '簡易OMRの結果です。譜面上で音符を直してから演奏・書き出しをおすすめします。',
-        '高精度な読み取りは Audiveris（GPL）や oemer などをローカルで実行し、MusicXML を取り込んでください。'
+      return {score,warnings:hub.lastRecognition?.warnings||[
+        '写真認識の結果です。演奏前に音符を確認してください。'
       ]};
     },
     async exportReviewed(kind,{preferShare=true}={}){
@@ -222,6 +265,41 @@
       omr.close();
     }));
     $('scoreOmrCancel')?.addEventListener('click',()=>omr.close());
+    $('scoreOmrMode')?.addEventListener('change',event=>{
+      const mode=root.KanadeOmrRouter?.saveMode?.(event.target.value);
+      hub.syncOmrModeUi(mode);
+    });
+    $('scoreOmrPcBtn')?.addEventListener('click',async()=>{
+      if(!hub.lastPayload)return;
+      try{
+        hub.hooks.toast?.('PC で読み取り中…');
+        root.KanadeOmrRouter.saveMode('pc');
+        const recognition=await hub.runOmrRecognition({...hub.lastPayload,mode:'pc'});
+        hub.lastRecognition=recognition;
+        hub.openOmrReview(recognition);
+      }catch(error){hub.hooks.toast?.(error.message,true);}
+    });
+    const mlPanel=$('scoreOmrMlPanel');
+    $('scoreOmrMlEnable')?.addEventListener('click',async()=>{
+      if(!hub.lastPayload)return;
+      try{
+        if(mlPanel)mlPanel.hidden=false;
+        await root.KanadeOmrMlRuntime.enableHighPrecision({uiRoot:mlPanel});
+        root.KanadeOmrRouter.saveMode('ml');
+        const recognition=await hub.runOmrRecognition({...hub.lastPayload,mode:'ml',mlConsent:true});
+        hub.lastRecognition=recognition;
+        hub.openOmrReview(recognition);
+      }catch(error){hub.hooks.toast?.(error.message,true);}
+    });
+    $('scoreOmrRerun')?.addEventListener('click',async()=>{
+      if(!hub.lastPayload)return;
+      try{
+        const mode=$('scoreOmrMode')?.value||'auto';
+        const recognition=await hub.runOmrRecognition({...hub.lastPayload,mode,mlConsent:mode==='ml'});
+        hub.lastRecognition=recognition;
+        hub.openOmrReview(recognition);
+      }catch(error){hub.hooks.toast?.(error.message,true);}
+    });
     const runExport=kind=>hub.exportReviewed(kind).catch(error=>hub.hooks.toast?.(error.message,true));
     $('scoreOmrExportMidi')?.addEventListener('click',()=>runExport('midi'));
     $('scoreOmrExportMusicXml')?.addEventListener('click',()=>runExport('musicxml'));

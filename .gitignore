@@ -1,14 +1,3 @@
-node_modules/
-.local/
-*.log
-*.kanade.json
-.DS_Store
-Thumbs.db
-hosting/public/
-hosting/node_modules/
-hosting/dist/
-hosting/.wrangler/
-hosting/.vinext/
-hosting/.sites-runtime/
-hosting/*.tsbuildinfo
-/dist/
+/package/
+*.tgz
+/.vendor-tmp/

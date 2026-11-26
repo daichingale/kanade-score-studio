@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { handleOmrHttp } from './omr-dev-routes.mjs';
 
 export const projectRoot = fileURLToPath(new URL('../', import.meta.url));
 const defaultRoot = path.join(projectRoot, 'app/web');
@@ -231,6 +232,9 @@ export async function startServer({ root = defaultRoot, port = 5173, interval = 
     if (requestUrl.pathname.startsWith('/__agent/')) {
       await handleAgent(req, res, requestUrl, ollamaOrigin); return;
     }
+    if (requestUrl.pathname.startsWith('/__omr/')) {
+      await handleOmrHttp(req, res, requestUrl, { sendJson, readBody }); return;
+    }
     if (!['GET', 'HEAD'].includes(req.method)) { res.writeHead(405); res.end(); return; }
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -298,7 +302,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const cliHost = process.argv.find(entry => entry.startsWith('--host='))?.slice(7) || process.env.KANADE_HOST || process.env.HOST;
   try {
     const dev = await startServer(cliHost ? { host: cliHost } : {});
-    const lanNote = dev.host === '0.0.0.0' ? '\nLAN: set HOST=0.0.0.0 and open http://<このPCのIP>:5173 from your phone on the same Wi-Fi. Ollama still uses 127.0.0.1 on this PC.' : '';
+    const lanNote = dev.host === '0.0.0.0'
+      ? '\nLAN: HOST=0.0.0.0 で http://<このPCのIP>:5173 を開けます。携帯から同じ Wi‑Fi で利用可。PC 高精度 OMR: POST /__omr/recognize（Audiveris または oemer 要）。Ollama は PC ローカルのみ。'
+      : '';
     console.log(`Kanade v0.2 | ${dev.url}\nSource: ${defaultRoot}${lanNote}\nSave source files to update the browser. Ctrl+C to stop.`);
     if (process.argv.includes('--open')) openBrowser(dev.url);
     for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => { await dev.close(); process.exit(0); });

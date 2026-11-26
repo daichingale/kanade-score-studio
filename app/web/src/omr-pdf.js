@@ -6,16 +6,10 @@
   function loadPdfJs(){
     if(root.pdfjsLib?.getDocument)return Promise.resolve(root.pdfjsLib);
     if(pdfReady)return pdfReady;
-    pdfReady=new Promise((resolve,reject)=>{
-      const script=document.createElement('script');
-      script.src='vendor/pdfjs/pdf.min.mjs';
-      script.type='module';
-      script.onload=()=>{
-        if(root.pdfjsLib)return resolve(root.pdfjsLib);
-        reject(Error('PDF.js を読み込めませんでした'));
-      };
-      script.onerror=()=>reject(Error('PDF.js が未配置です'));
-      document.head.appendChild(script);
+    pdfReady=import(new URL('vendor/pdfjs/pdf.min.mjs',document.baseURI||location.href)).then(mod=>{
+      const lib=mod.default||mod;
+      root.pdfjsLib=lib;
+      return lib;
     }).catch(error=>{
       pdfReady=null;
       throw error;
