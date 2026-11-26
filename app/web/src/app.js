@@ -1605,7 +1605,9 @@
         const open=$('entryBar').classList.toggle('mobile-expanded');
         button.setAttribute('aria-expanded',String(open));
       },
-      collapse:()=>showMobileTools($('mobileTools').hidden)
+      collapse:()=>showMobileTools($('mobileTools').hidden),
+      openFile:()=>$('importScoreFile').click(),
+      importMenu:()=>openImportChooser()
     };
     dock.addEventListener('click',e=>{
       const button=e.target.closest('button');if(!button)return;
@@ -2817,7 +2819,34 @@
       showToast('書き出しました：'+kind);
     });
   }
-  let pendingImport=null,fileRead=0;
+  let pendingImport=null,fileRead=0,importHubReady=null;
+  function ensureImportHub(){
+    if(window.KanadeImportHub)return importHubReady??=Promise.resolve(window.KanadeImportHub);
+    importHubReady=new Promise((resolve,reject)=>{
+      const script=document.createElement('script');
+      script.src='src/import-hub.js';
+      script.defer=true;
+      script.onload=()=>{
+        window.KanadeImportHub.attach({
+          openParsed:parsed=>{
+            if(parsed.warnings?.length)showImport({score:parsed.score,warnings:parsed.warnings});
+            else loadImportedScore(parsed.score);
+          },
+          toast:showToast,
+          attempt,
+          download:(content,filename,type)=>download(content,filename,type)
+        });
+        resolve(window.KanadeImportHub);
+      };
+      script.onerror=()=>reject(Error('取り込み機能を読み込めませんでした'));
+      document.head.appendChild(script);
+    });
+    return importHubReady;
+  }
+  async function openImportChooser(){
+    await ensureImportHub();
+    $('scoreImportChooser').showModal();
+  }
   function loadImportedScore(imported){
     const errors=C.validateScore(imported);if(errors.length)throw Error(errors[0]);
     undo.length=0;redo.length=0;stopAudio();selectionRange=null;rangeAnchor=null;
@@ -2837,15 +2866,18 @@
   async function openFile(file) {
     if(window.KanadeCollab?.active){showToast('別の楽譜を開く前に共同編集から退出してください');return;}
     if(!file)return;
-    const request=++fileRead,compressed=/\.mxl$/i.test(file.name),musicxml=compressed||/\.(?:musicxml|xml)$/i.test(file.name);
+    const request=++fileRead;
     try{
+      await ensureImportHub();
+      const musicxml=/\.(?:musicxml|xml|mxl)$/i.test(file.name);
       const limit=musicxml?window.KanadeMusicXMLContainer.MAX_BYTES:5*1024*1024;
-      if(file.size>limit)throw Error('ファイルの上限は'+(limit/1024/1024)+' MBです');
-      const contents=compressed?await window.KanadeMusicXMLContainer.unpack(await file.arrayBuffer()):await file.text();
+      if(file.size>limit&&!/\.mid/i.test(file.name))throw Error('ファイルの上限は'+(limit/1024/1024)+' MBです');
+      const parsed=await window.KanadeImportHub.readScoreFile(file);
       if(request!==fileRead)return;
       if(window.KanadeCollab?.active)throw Error('別の楽譜を開く前に共同編集から退出してください');
-      if(musicxml||contents.trimStart().startsWith('<'))showImport(window.KanadeMusicXMLImport.parse(contents));
-      else loadImportedScore(JSON.parse(contents));
+      if(parsed.pending)return;
+      if(parsed.warnings?.length)showImport({score:parsed.score,warnings:parsed.warnings});
+      else loadImportedScore(parsed.score);
     }catch(error){if(request===fileRead)showToast(error.message,true);}
   }
   function setupFileTools(){
@@ -3408,7 +3440,10 @@
       undo.length=0;redo.length=0;stopAudio();selectionRange=null;rangeAnchor=null;loadScore(demo);selected=null;activeMeasure=0;caret={mi:0,index:0};persist();render();showToast('サンプル譜を表示しました');
     });
     $('saveBtn').onclick=save;$('openBtn').onclick=()=>$('importFile').click();
+    $('fileMenuImport').onclick=()=>openImportChooser();
+    $('mobileImportOpen').onclick=()=>openImportChooser();
     $('importFile').onchange=e=>{openFile(e.target.files?.[0]);e.target.value='';};
+    if(mobile.matches)ensureImportHub().catch(()=>{});
     $('exportBtn').onclick=()=>{const menu=$('exportMenu');menu.classList.toggle('hidden');$('exportBtn').setAttribute('aria-expanded',String(!menu.classList.contains('hidden')));};
     $('exportMenu').onclick=e=>{const b=e.target.closest('[data-export]');if(b)exportAs(b.dataset.export);};
     document.addEventListener('click',e=>{if(!e.target.closest('.menuwrap')){$('exportMenu').classList.add('hidden');$('exportBtn').setAttribute('aria-expanded','false');}});

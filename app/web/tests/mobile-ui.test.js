@@ -6,6 +6,16 @@ test('viewport meta supports safe-area on phones',()=>{
  assert.match(html,/width=device-width/);
 });
 
+test('mobile dock exposes score import entry points',()=>{
+ assert.match(html,/data-mobile-tab="import"/);
+ assert.match(html,/id="mobileImportOpen"/);
+ assert.match(html,/id="scoreImportChooser"/);
+ assert.match(html,/id="scoreOmrExportMidi"/);
+ assert.match(html,/id="scoreOmrExportMusicXml"/);
+ assert.match(html,/id="importCamera"/);
+ assert.match(html,/capture="environment"/);
+});
+
 test('mobile note palette exposes durations, undo, and engraving toggle',()=>{
  for(const id of ['mobileEditor','mobileTools','undoMobile','redoMobile'])assert.ok(html.includes(`id="${id}"`),id);
  assert.match(html,/class="mobile-duration-bar"/);

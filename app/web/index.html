@@ -68,14 +68,17 @@
     <header class="topbar">
       <div class="brand"><span class="brand-mark">𝄞</span><div><strong>kanade<span class="brand-dot">.</span></strong></div></div>
       <nav id="appMenubar" class="app-menubar" aria-label="メニューバー">
-        <details class="app-menu" id="fileMenu"><summary>ファイル</summary><div class="menu-panel"><button id="newBtn" class="ghost" title="新規作成">新規</button><button id="quickStartOpen" type="button" class="ghost" title="吹奏楽テンプレートから一発作成">クイック作成</button><button id="openBtn" class="ghost" title="Kanade、MusicXML、MXLを開く">楽譜を開く</button><button id="mediaOpen" type="button" class="ghost">動画・音声を開く</button><button id="demoBtn" class="ghost" title="入力例を表示">サンプル譜</button><div class="menu-divider"></div><div class="menuwrap"><button id="exportBtn" class="ghost" aria-expanded="false">書き出し ▾</button><div id="exportMenu" class="export-menu hidden"><button data-export="wav">WAV 音声 (.wav)</button><button data-export="mp3">MP3 音声 (.mp3)</button><button data-export="midi">MIDI (.mid)</button><button data-export="musicxml">MusicXML (.musicxml)</button><button data-export="svg">SVG 画像 (.svg)</button><button data-export="ksl">KSL テキスト (.ksl) <small>試験的</small></button><button data-export="print">印刷プレビュー</button><button data-export="pdf">PDF出力</button></div></div></div></details>
+        <details class="app-menu" id="fileMenu"><summary>ファイル</summary><div class="menu-panel"><button id="newBtn" class="ghost" title="新規作成">新規</button><button id="quickStartOpen" type="button" class="ghost" title="吹奏楽テンプレートから一発作成">クイック作成</button><button id="openBtn" class="ghost" title="Kanade、MusicXML、MXL、MIDIを開く">楽譜を開く</button><button id="fileMenuImport" type="button" class="ghost" title="写真・カメラ・ファイルから取り込み">取り込み…</button><button id="mediaOpen" type="button" class="ghost">動画・音声を開く</button><button id="demoBtn" class="ghost" title="入力例を表示">サンプル譜</button><div class="menu-divider"></div><div class="menuwrap"><button id="exportBtn" class="ghost" aria-expanded="false">書き出し ▾</button><div id="exportMenu" class="export-menu hidden"><button data-export="wav">WAV 音声 (.wav)</button><button data-export="mp3">MP3 音声 (.mp3)</button><button data-export="midi">MIDI (.mid)</button><button data-export="musicxml">MusicXML (.musicxml)</button><button data-export="svg">SVG 画像 (.svg)</button><button data-export="ksl">KSL テキスト (.ksl) <small>試験的</small></button><button data-export="print">印刷プレビュー</button><button data-export="pdf">PDF出力</button></div></div></div></details>
         <details class="app-menu" id="editMenu"><summary>編集</summary><div class="menu-panel"><button id="sparkOpen" type="button">ひらめき</button><button id="chordComposerOpen" type="button">コードで作曲</button><button id="popProgressionOpen" type="button">ポップ進行を入力</button><button id="selectMeasure" title="現在の小節全体を選択">小節選択</button><button id="selectSingle">音符・休符を1つ選択</button><button id="selectToStart">現在の音符から曲頭まで</button><button id="selectToEnd">現在の音符から曲末まで</button><div class="menu-divider"></div><button id="deleteNoteMenu">音符・休符を消去</button><button id="copySelection" title="コピー（Ctrl+C）">コピー</button><button id="cutSelection" title="切り取り（Ctrl+X）">切り取り</button><button id="pasteSelection" title="カーソル位置から貼り付け（Ctrl+V）" disabled>貼り付け</button><div class="menu-divider"></div><button id="addMeasure">＋ 小節を追加</button><button id="insertMeasureBefore" title="選択中の小節の前に空小節を挿入">手前に挿入</button><button id="duplicateMeasures" title="選択範囲がまたがる小節を複製">小節複製</button><button id="removeMeasure" title="選択範囲がまたがる小節を丸ごと削除（Ctrl+Zで戻す）">小節削除</button></div></details>
         <button class="menu-trigger" data-panel="scoreSettings">楽譜</button>
         <button class="menu-trigger" data-transport-action="mix">再生</button><button class="menu-trigger" data-panel="collabPanel">共同編集</button><button class="menu-trigger" id="agentToggle" type="button" aria-controls="agentPanel" aria-expanded="false" title="吹奏楽の相談（Ctrl+J）">相談</button>
         <details class="app-menu" id="viewMenu"><summary>表示</summary><div class="menu-panel"><button id="menuPianoRoll" type="button">ピアノロール</button><button id="menuOverview">全体譜・自動整形</button><button id="verovioToggle" type="button" data-verovio-toggle aria-pressed="true">刻譜で表示（Verovio）</button><button id="menuPublication">作品情報・表紙</button><button id="menuPrintPreview">印刷プレビュー</button><button data-view-action="in">拡大（Ctrl＋＋）</button><button data-view-action="out">縮小（Ctrl＋−）</button><button data-view-action="actual">100%（Ctrl＋0）</button><button data-view-action="fit">幅に合わせる</button><button data-hand-tool aria-pressed="false">手のひらツール（H）</button><div class="menu-divider"></div><button data-toggle-inspector>音符の詳細を表示／閉じる</button><button id="installApp" hidden>アプリとしてインストール</button><button id="agentMenu" type="button">吹奏楽AIに相談（Ctrl＋J）</button><button id="shortcutsOpen" type="button">ショートカット一覧（F1）</button><button data-panel="helpPanel">操作ガイド・アプリ情報</button></div></details>
       </nav>
       <div class="quick-actions"><button id="arrangementOpen" type="button" aria-controls="arrangement" aria-expanded="false">タイムライン</button><button id="mobileMenu" type="button" aria-controls="appMenubar" aria-expanded="false">メニュー</button><button id="agentMobile" type="button" aria-controls="agentPanel" aria-expanded="false" title="吹奏楽の相談">相談</button><button id="mobilePlay" class="mobile-play" aria-label="再生" aria-pressed="false">▶</button><button id="collabBadge" data-panel="collabPanel" hidden>共同編集</button><button id="commandBtn" class="ghost" title="操作を検索（Ctrl+K / ⌘K）" aria-haspopup="dialog" aria-controls="commandPalette">操作検索</button><button id="saveBtn" class="solid" title="プロジェクトを保存"><span aria-hidden="true">↓</span> 保存</button></div>
-      <input id="importFile" type="file" accept=".json,.kanade.json,.musicxml,.xml,.mxl,application/json,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml" hidden>
+      <input id="importFile" type="file" accept=".json,.kanade.json,.musicxml,.xml,.mxl,.mid,.midi,application/json,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml,audio/midi,audio/mid" hidden>
+      <input id="importCamera" type="file" accept="image/*" capture="environment" hidden>
+      <input id="importGallery" type="file" accept="image/*,.pdf,application/pdf" hidden>
+      <input id="importScoreFile" type="file" accept=".json,.kanade.json,.musicxml,.xml,.mxl,.mid,.midi,application/json,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml,audio/midi,audio/mid" hidden>
     </header>
     <div class="workspace">
       <aside class="sidebar" aria-label="音符パレット">
@@ -198,7 +201,7 @@
           </div>
           <div id="mobileTools">
             <div class="mobile-tabs" role="group" aria-label="入力パレット">
-              <button data-mobile-tab="notes" aria-pressed="true">音符</button><button data-mobile-tab="keys" aria-pressed="false">音名</button><button data-mobile-tab="marks" aria-pressed="false">記号</button><button data-mobile-tab="actions" aria-pressed="false">編集</button><button data-mobile-tab="measures" aria-pressed="false">小節</button>
+              <button data-mobile-tab="notes" aria-pressed="true">音符</button><button data-mobile-tab="keys" aria-pressed="false">音名</button><button data-mobile-tab="marks" aria-pressed="false">記号</button><button data-mobile-tab="actions" aria-pressed="false">編集</button><button data-mobile-tab="measures" aria-pressed="false">小節</button><button data-mobile-tab="import" aria-pressed="false">取り込み</button>
             </div>
             <div data-mobile-pane="notes">
               <div class="mobile-row mobile-entry">
@@ -252,6 +255,13 @@
               </div>
               <div class="mobile-row mobile-marks">
                 <button data-mobile-action="copy">コピー</button><button data-mobile-action="paste">貼り付け</button><button data-toggle-inspector aria-pressed="false">音符の詳細</button><button data-mobile-action="stem">符幹反転</button>
+              </div>
+            </div>
+            <div data-mobile-pane="import" hidden>
+              <p class="mobile-import-lead">写真・カメラ・ファイルから楽譜を取り込みます。OMRは単一メロディー向けの簡易版です。</p>
+              <div class="mobile-row mobile-import">
+                <button type="button" id="mobileImportOpen" class="mobile-primary">取り込みメニュー</button>
+                <button type="button" data-mobile-action="openFile">ファイルを開く</button>
               </div>
             </div>
             <div data-mobile-pane="measures" hidden>
@@ -570,13 +580,42 @@
     <button type="button" role="menuitem" data-score-action="paste">貼り付け <kbd>Ctrl+V</kbd></button>
   </div>
   <dialog id="scoreImportDialog" class="settings-panel score-import-dialog" aria-labelledby="scoreImportHeading">
-    <div class="panel-heading"><h2 id="scoreImportHeading">MusicXMLの読み込み</h2></div>
+    <div class="panel-heading"><h2 id="scoreImportHeading">取り込みの確認</h2></div>
     <p id="scoreImportSummary"></p>
     <ul id="scoreImportWarnings"></ul>
     <div class="file-dialog-actions">
       <form method="dialog"><button type="submit">キャンセル</button></form>
       <button id="scoreImportSave" type="button">現在の譜面を保存</button>
       <button id="scoreImportApply" type="button" class="solid">読み込んだ譜面を開く</button>
+    </div>
+  </dialog>
+  <dialog id="scoreImportChooser" class="settings-panel score-import-chooser" aria-labelledby="scoreImportChooserHeading">
+    <div class="panel-heading"><h2 id="scoreImportChooserHeading">楽譜を取り込む</h2></div>
+    <p class="panel-hint">ファイル取り込みは端末内で完結します。写真認識（OMR）は印刷された1行メロディー向けです。</p>
+    <div class="import-choice-grid">
+      <button type="button" id="importCameraBtn" class="import-choice">📷 カメラで撮る</button>
+      <button type="button" id="importGalleryBtn" class="import-choice">🖼 写真・PDFを選ぶ</button>
+      <button type="button" id="importScoreFileBtn" class="import-choice">📄 ファイル（MusicXML / MXL / MIDI / Kanade）</button>
+    </div>
+    <p class="panel-hint">高精度の譜面読み取りには、PCで Audiveris や oemer を使い MusicXML で取り込む方法もあります。</p>
+    <form method="dialog" class="file-dialog-actions"><button type="submit" id="importHubClose">閉じる</button></form>
+  </dialog>
+  <dialog id="scoreOmrDialog" class="settings-panel score-omr-dialog" aria-labelledby="scoreOmrHeading">
+    <div class="panel-heading"><h2 id="scoreOmrHeading">写真認識の確認</h2></div>
+    <label for="scoreOmrTitle">曲名</label>
+    <input id="scoreOmrTitle" maxlength="200" value="写真から取り込み">
+    <canvas id="scoreOmrCanvas" class="score-omr-canvas" aria-label="認識結果のプレビュー"></canvas>
+    <ul id="scoreOmrWarnings" class="score-omr-warnings"></ul>
+    <ol id="scoreOmrNotes" class="score-omr-notes"></ol>
+    <p class="panel-hint">赤枠は推定した音符です。誤りはチェックを外すか半音ボタンで直してください。</p>
+    <div class="score-omr-exports" role="group" aria-label="認識結果をファイルで書き出す">
+      <button type="button" id="scoreOmrExportMidi">MIDI (.mid) を書き出す</button>
+      <button type="button" id="scoreOmrExportMusicXml">MusicXML (.musicxml) を書き出す</button>
+    </div>
+    <p class="panel-hint">スマホでは共有シート（Web Share）が使える場合、書き出しボタンからそのまま送れます。</p>
+    <div class="file-dialog-actions">
+      <button type="button" id="scoreOmrCancel">キャンセル</button>
+      <button type="button" id="scoreOmrApply" class="solid">エディタで開く</button>
     </div>
   </dialog>
   <dialog id="mediaDialog" class="settings-panel media-dialog" aria-labelledby="mediaHeading">
