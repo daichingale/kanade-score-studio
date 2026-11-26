@@ -138,5 +138,11 @@
     return {...bitmap,data:out};
   }
 
-  root.KanadeOmrImage={bitmapFromRGBA,contrast,sauvola,binarizeGlobal,deskew,perspective,removeStaffLines};
+  function binarizeEngraved(gray,threshold=210){
+    const out=new Uint8Array(gray.data.length);
+    for(let i=0;i<gray.data.length;i++)out[i]=gray.data[i]<threshold?1:0;
+    return {...gray,data:out,ink:1};
+  }
+
+  root.KanadeOmrImage={bitmapFromRGBA,contrast,sauvola,binarizeGlobal,binarizeEngraved,deskew,perspective,removeStaffLines};
 })(globalThis);

@@ -172,6 +172,6 @@
   }
 
   root.KanadeOmrMlMasks={
-    recognizeFromMlOutputs,recognizeFromSyntheticMl,syntheticMasksFromFixture,centroids
+    recognizeFromMlOutputs,recognizeFromSyntheticMl,syntheticMasksFromFixture,centroids,resizeMask
   };
 })(globalThis);
