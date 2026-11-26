@@ -24,6 +24,8 @@
  let draft='';
  let liveSteps=[];
  let pendingConfirm=null;
+ let pendingEnsembleChoices=null;
+ let ensembleCompare=null;
  let busy=false;
  let turn=0;
  let abort=null;
@@ -82,6 +84,46 @@
   }
   if(draft)log.append(bubble({role:'assistant',content:draft,pending:true}));
   if(pendingConfirm)log.append(pendingConfirm);
+  if(pendingEnsembleChoices?.options?.length){
+   const card=document.createElement('div');
+   card.className='agent-confirm agent-ensemble-pick';
+   const title=document.createElement('p');
+   title.textContent='編成案を選んで適用してください。';
+   card.append(title);
+   for(const option of pendingEnsembleChoices.options){
+    const button=document.createElement('button');
+    button.type='button';
+    button.textContent=`${option.title}`;
+    button.title=option.reason||'';
+    button.addEventListener('click',()=>applyEnsembleChoice(option.id));
+    card.append(button);
+   }
+   const hint=document.createElement('p');
+   hint.className='agent-ensemble-reason';
+   hint.textContent=pendingEnsembleChoices.options.map((option,index)=>`${index+1}. ${option.reason||''}`).join('\n');
+   card.append(hint);
+   log.append(card);
+  }
+  if(ensembleCompare?.before&&ensembleCompare?.after){
+   const card=document.createElement('div');
+   card.className='agent-compare';
+   const text=document.createElement('p');
+   text.textContent='編成変更の比較: 切り替えて聴き比べできます（Undoも利用可）。';
+   const actions=document.createElement('div');
+   const before=document.createElement('button');
+   before.type='button';
+   before.textContent='変更前に戻す';
+   before.setAttribute('aria-pressed',String(ensembleCompare.view==='before'));
+   const after=document.createElement('button');
+   after.type='button';
+   after.textContent='変更後に戻す';
+   after.setAttribute('aria-pressed',String(ensembleCompare.view!=='before'));
+   before.addEventListener('click',()=>swapEnsembleView('before'));
+   after.addEventListener('click',()=>swapEnsembleView('after'));
+   actions.append(before,after);
+   card.append(text,actions);
+   log.append(card);
+  }
   log.scrollTop=log.scrollHeight;
  }
  function fillModels(names){
@@ -131,6 +173,32 @@
    no.addEventListener('click',()=>finish(false));
    actions.append(yes,no);card.append(text,actions);pendingConfirm=card;render();
   });
+ }
+ function setEnsembleCompare(state){
+  ensembleCompare=state?.before&&state?.after?{before:true,after:true,view:state.view||'after'}:null;
+  render();
+ }
+ async function applyEnsembleChoice(optionId){
+  if(busy||!optionId)return;
+  setBusy(true);
+  try{
+   const result=await root.kanadeAgent.call('applyEnsembleOption',{optionId,preserveMusic:true},{confirmed:true});
+   pendingEnsembleChoices=null;
+   setStatus(result.summary||'編成を適用しました。');
+   const item={role:'assistant',content:result.summary||'編成を適用しました。'};
+   if(result.wrote>0)item.undoCount=result.wrote;
+   messages=Agent.trimHistory([...messages,item]);
+   save();render();
+  }catch(error){setStatus(error.message||String(error));}
+  finally{setBusy(false);}
+ }
+ function swapEnsembleView(side){
+  try{
+   root.kanadeAgent.swapEnsembleCompare(side);
+   if(ensembleCompare)ensembleCompare.view=side;
+   setStatus(side==='before'?'変更前の編成を表示しています。':'変更後の編成を表示しています。');
+   render();
+  }catch(error){setStatus(error.message);}
  }
  function undoTurn(message){
   try{
@@ -207,7 +275,10 @@
      if(id!==turn)return;
      const label=root.KanadeAgentTools?.stepLabel(step.name)||step.name;
      if(step.phase==='start')liveSteps.push(`${label}しています…`);
-     else if(step.phase==='done')liveSteps[liveSteps.length-1]=step.text;
+     else if(step.phase==='done'){
+      liveSteps[liveSteps.length-1]=step.text;
+      if(step.proposal?.options?.length)pendingEnsembleChoices=step.proposal;
+     }
      draft='';render();
     },
     chat:streamChat
@@ -270,5 +341,5 @@
  panel.addEventListener('keydown',event=>{
   if(event.key==='Escape'&&!event.isComposing){event.preventDefault();event.stopPropagation();close();}
  });
- root.KanadeAgentUI={toggle:togglePanel,open,close,isOpen:()=>!panel.hidden};
+ root.KanadeAgentUI={toggle:togglePanel,open,close,isOpen:()=>!panel.hidden,setEnsembleCompare};
 })(window);

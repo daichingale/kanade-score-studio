@@ -7,10 +7,11 @@
  const Arrange=root.KanadeArrange||(typeof require==='function'?require('./agent-arrange.js'):null);
  const Pop=root.KanadePopProgression||(typeof require==='function'?require('./pop-progression.js'):null);
  const Spark=root.KanadeInspirationSpark||(typeof require==='function'?require('./inspiration-spark.js'):null);
- const api=factory(C,B,I,Ex,Arrange,Spark);
+ const Ensemble=root.KanadeAgentEnsemble||(typeof require==='function'?require('./agent-ensemble.js'):null);
+ const api=factory(C,B,I,Ex,Arrange,Spark,Ensemble);
  if(typeof module==='object'&&module.exports)module.exports=api;
  root.KanadeAgentTools=api;
-})(typeof globalThis!=='undefined'?globalThis:this,function(C,B,I,Ex,Arrange,Spark){
+})(typeof globalThis!=='undefined'?globalThis:this,function(C,B,I,Ex,Arrange,Spark,Ensemble){
  'use strict';
  const DENOMS=new Set([1,2,4,8,16,32,64]);
  const KEY_NAMES={
@@ -23,7 +24,8 @@
  const STEP_NAMES={
   getScoreSummary:'楽譜の概要を確認',readMeasures:'小節を読む',listEnsembleTemplates:'編成テンプレートを確認',
   setMetadata:'曲名または作曲者を変更',setTempo:'テンポを変更',setKey:'調号を変更',setTimeSignature:'拍子を変更',
-  addParts:'パートを追加',applyEnsembleTemplate:'編成テンプレートを適用',removePart:'パートを削除',
+  addParts:'パートを追加',applyEnsembleTemplate:'編成テンプレートを適用',proposeEnsembleOptions:'編成案を提示',applyEnsembleOption:'編成案を適用',
+  reorderParts:'パート順を変更',changePartInstrument:'楽器を変更',removePartRedistribute:'パート削除と譜面移行',removePart:'パートを削除',
   insertNotes:'音符を入力',writePhrase:'フレーズを短いテキストで入力',insertRests:'休符を入力',transpose:'移調',addMeasures:'小節を追加',
   removeMeasures:'小節を削除',undoAiChange:'直前のAI編集を取り消し',exportMusicXML:'MusicXMLを書き出し',
   proposeInstrumentation:'編成を提案',arrangeMelody:'旋律を編成に分配',doublePart:'パートを重ねる',
@@ -359,7 +361,8 @@
    }
   },
   applyEnsembleTemplate:{
-   description:'編成テンプレートを使う。idはwind、smallWind、windSymphony、marchingなど。空の楽譜では入れ替える。音符がある楽譜を入れ替えるときはreplaceをtrueにする。',
+   description:'編成テンプレートを使う。idはwind、smallWind、windSymphony、marching、brassBandなど。空の楽譜では入れ替える。音符がある楽譜を入れ替えるときはreplaceをtrueにする。',
+   ensembleChange:true,
    parameters:{type:'object',properties:{id:{type:'string'},replace:{type:'boolean'}},required:['id']},
    confirm(doc,args){
     const template=templateBy(args.id);
@@ -513,8 +516,60 @@
    parameters:{type:'object',properties:{}},
    undo:true
   },
+  proposeEnsembleOptions:{
+   description:'2〜3個の編成案（テンプレートや人数ベース）を理由付きで提示するだけ。楽譜は変えない。ユーザーがチャットで案を選んだあと applyEnsembleOption を呼ぶ。',
+   parameters:{type:'object',properties:{headcount:{type:'integer'},missing:{type:'array',items:{type:'string'}},style:{type:'string'},level:{type:'string'}}},
+   run(doc,args){
+    if(!Ensemble)fail('編成ヘルパーが読み込まれていません');
+    const built=Ensemble.buildOptions(doc,args||{});
+    return {summary:built.summary,proposal:{options:built.options.map(option=>({id:option.id,title:option.title,reason:option.reason}))}};
+   }
+  },
+  applyEnsembleOption:{
+   description:'proposeEnsembleOptions で出した optionId の編成を適用する。preserveMusic が true（既定）なら既存パートの旋律を近い楽器へ移す。',
+   parameters:{type:'object',properties:{optionId:{type:'string'},preserveMusic:{type:'boolean'},level:{type:'string'}},required:['optionId']},
+   ensembleChange:true,
+   confirm(doc,args){
+    if(!Ensemble)fail('編成ヘルパーが読み込まれていません');
+    const option=Ensemble.optionById(args.optionId);
+    return `「${option.title}」を適用します（${option.partCount||option.keys?.length||'?'}パート）。\n変更前後はチャット下部の切替ボタンで比較できます。`;
+   },
+   run(doc,args){
+    if(!Ensemble)fail('編成ヘルパーが読み込まれていません');
+    const option=Ensemble.optionById(args.optionId);
+    return Ensemble.applyOption(doc,option,{preserveMusic:flag(args.preserveMusic??true),level:args.level||'中級'});
+   }
+  },
+  reorderParts:{
+   description:'パートの並び順を入れ替える。order は1始まりのパート番号の配列（全パートを並べる）。',
+   parameters:{type:'object',properties:{order:{type:'array',items:{type:'integer'}}},required:['order']},
+   ensembleChange:true,
+   run(doc,args){if(!Ensemble)fail('編成ヘルパーが読み込まれていません');return Ensemble.reorderParts(doc,args.order);}
+  },
+  changePartInstrument:{
+   description:'パートの楽器を変更し、移調・音域を合わせて記譜を整える。part は番号または名前。instrument は trumpet や clarinet などのキー。',
+   parameters:{type:'object',properties:{part:{type:'string'},instrument:{type:'string'}},required:['part','instrument']},
+   ensembleChange:true,
+   run(doc,args){
+    if(!Ensemble)fail('編成ヘルパーが読み込まれていません');
+    return Ensemble.changePartInstrument(doc,resolvePart(doc,args.part)+1,args.instrument);
+   }
+  },
+  removePartRedistribute:{
+   description:'パートを削除し、音符は音域の近い別パートへ移す。part は番号または名前。level は初級、中級、上級。',
+   parameters:{type:'object',properties:{part:{type:'string'},level:{type:'string'}},required:['part']},
+   ensembleChange:true,
+   confirm(doc,args){
+    const index=resolvePart(doc,args.part);
+    return `${index+1}番「${partsOf(doc)[index].instrument}」を削除し、メロディは別パートへ移します。`;
+   },
+   run(doc,args){
+    if(!Ensemble)fail('編成ヘルパーが読み込まれていません');
+    return Ensemble.removePartRedistribute(doc,resolvePart(doc,args.part)+1,args.level||'中級');
+   }
+  },
   proposeInstrumentation:{
-   description:'人数や足りない楽器から編成を提案し、確認後に入れ替える。headcountは人数。missingは抜く楽器。styleはconcert、small、marching、bright。levelは初級、中級、上級。確認前は楽譜を変えない。',
+   description:'人数や足りない楽器から編成を提案し、確認後に入れ替える。headcountは人数。missingは抜く楽器。styleはconcert、small、marching、bright。levelは初級、中級、上級。確認前は楽譜は変えない。編成案を比較したいときは proposeEnsembleOptions を優先。',
    parameters:{type:'object',properties:{headcount:{type:'integer'},missing:{type:'array',items:{type:'string'}},style:{type:'string'},level:{type:'string'}}},
    confirm(doc,args){
     const planned=Arrange.plan(args||{});

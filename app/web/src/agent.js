@@ -32,7 +32,7 @@
    'パート番号と小節番号は1から数えます。引数は指定された項目だけを使い、余分な文章をJSONに混ぜません。',
    '編集の前に getScoreSummary を呼びます。音符の中身が必要なときだけ readMeasures を使います。',
    '曲名は setMetadata、テンポは setTempo、コンサート調は setKey（ハ長調は fifths 0、変ホ長調は -3、変ロ長調は -2）、拍子は setTimeSignature です。',
-   '「吹奏楽編成にして」は applyEnsembleTemplate です。空の楽譜なら id に wind または smallWind を渡します。音符がある楽譜を入れ替えるときだけ replace を true にします。楽器を足すだけなら addParts に keys を渡します。',
+   '編成変更は必ず proposeEnsembleOptions で2〜3案を出し、ユーザーがチャットで選んだ optionId で applyEnsembleOption を実行します。テンプレのみなら applyEnsembleTemplate（wind、smallWind、windSymphony、marching、brassBand）。楽器を足すだけは addParts、並べ替えは reorderParts、楽器変更は changePartInstrument、削除と譜面移行は removePartRedistribute。',
    'ユーザーが音符・ファンファーレ・旋律の入力を求めたら、説明だけで終えず必ずツールで楽譜に書き込む。短いフレーズは writePhrase を優先（例: writePhrase で part トランペット、measure 1、phrase "G4 q G4 q C5 h | G4 q G4 q G4 h"）。詳細な JSON が必要なときだけ insertNotes。',
    '音符は insertNotes、休符は insertRests です。4小節のファンファーレなら measure 1、beat 1 から、四分音符は den 4 の配列を一度に渡します。既存の音符を置き換えるときだけ overwrite を true にします。ツール呼び出しは API の tool_calls を使い、文章だけで JSON を出力しない。',
    '「全音上げて」は transpose の semitones を 2、「半音上げて」は 1 です。音名で一段上げるときは steps を 1 にします。これは記譜音を動かす操作で、楽器の移調設定自体は変えません。',
@@ -394,7 +394,7 @@
       }else result={ok:false,error:error instanceof Error?error.message:String(error)};
      }
      if(result?.wrote)writes+=result.wrote;
-     onStep?.({name:call.name,phase:'done',ok:result?.ok!==false,text:result?.summary||result?.error||'完了'});
+     onStep?.({name:call.name,phase:'done',ok:result?.ok!==false,text:result?.summary||result?.error||'完了',proposal:result?.proposal});
      working.push({role:'tool',tool_name:call.name,content:JSON.stringify({ok:result?.ok!==false,summary:result?.summary||'',error:result?.error||''}).slice(0,4000)});
     }
     continue;
@@ -416,10 +416,14 @@
    const summary=Tools.confirmText(doc,name,args||{});
    if(summary){const error=new Error('確認が必要です');error.confirmation={name,summary,args};throw error;}
   }
+  if(op.ensembleChange&&host.prepareEnsembleCompare)host.prepareEnsembleCompare();
   const outcome=Tools.run(doc,name,args||{});
-  if(outcome.document)host.apply(outcome.document,`AI: ${outcome.summary}`,outcome.focusPart);
+  if(outcome.document){
+   host.apply(outcome.document,`AI: ${outcome.summary}`,outcome.focusPart);
+   if(op.ensembleChange&&host.finishEnsembleCompare)host.finishEnsembleCompare(outcome.document);
+  }
   if(outcome.xml)host.download(outcome.xml,outcome.filename);
-  return {ok:true,summary:outcome.summary,wrote:outcome.document?1:0};
+  return {ok:true,summary:outcome.summary,wrote:outcome.document?1:0,proposal:outcome.proposal};
  }
  function attach(next){
   host=next||null;

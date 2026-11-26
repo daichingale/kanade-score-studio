@@ -948,6 +948,14 @@
 .agent-confirm div{display:flex;justify-content:flex-end;gap:6px}
 .agent-confirm button,.agent-undo{border:1px solid #c9d9e6;border-radius:6px;background:#fff;color:#315e83;padding:6px 10px;font-size:12px}
 .agent-confirm button:first-child{background:#225e95;border-color:#225e95;color:#fff}
+.agent-ensemble-pick{display:flex;flex-direction:column;gap:6px}
+.agent-ensemble-pick button{width:100%;text-align:left}
+.agent-ensemble-reason{margin:0;font-size:12px;line-height:1.55;color:#5c4314;white-space:pre-wrap}
+.agent-compare{margin-top:4px;padding:10px;border:1px solid #b9d4ec;border-radius:8px;background:#f2f8fd;color:#1d4668}
+.agent-compare p{margin:0 0 8px;font-size:12px;line-height:1.55;white-space:pre-wrap}
+.agent-compare div{display:flex;gap:6px;flex-wrap:wrap}
+.agent-compare button{flex:1;border:1px solid #9ebfd9;border-radius:6px;background:#fff;color:#225e95;padding:6px 8px;font-size:12px}
+.agent-compare button[aria-pressed='true']{background:#225e95;border-color:#225e95;color:#fff}
 .agent-undo{align-self:flex-start}
 @media screen and (max-width:760px){
  .agent-panel{inset:0;width:100%;max-width:none;height:100dvh;max-height:none;border:0;border-radius:0;box-shadow:none;padding:max(8px,env(safe-area-inset-top)) 10px max(8px,env(safe-area-inset-bottom));z-index:30}
