@@ -5,7 +5,7 @@
   const C=window.KanadeCore, Ex=window.KanadeExport, R=window.KanadeRenderer, B=window.KanadeEditing;
   const $=id=>document.getElementById(id);
   const P=window.KanadePerformance,A=window.KanadeArrangement;
-  let performancePanel,popProgressionUI,chordComposerUI,arrangementUI,transport,playbackDisplay=null,playbackPaint=null;
+  let performancePanel,popProgressionUI,chordComposerUI,sparkUI,arrangementUI,transport,playbackDisplay=null,playbackPaint=null;
   let midiEntry=null,entryPad=null,shortcutsSheet=null,fastEntrySettings=window.KanadeFastEntry?.load?.()||{autoAdvance:true,autoFillRest:false,autoFillDen:4};
   let chordAssistEnabled=true;
   try{chordAssistEnabled=localStorage.getItem('kanade.chordAssist.v1')!=='off';}catch(_){}
@@ -1594,7 +1594,7 @@
       addNote:()=>mobileChord?applyMobileChord():insert('note',undefined,true,mobileDraft),addRest:()=>insert('rest',undefined,true,mobileDraft),
       octDown:()=>{if(mobileChord||mobileDraft)changeMobilePitch(-7);else{setOctave(octave-1);renderMobile();}},
       octUp:()=>{if(mobileChord||mobileDraft)changeMobilePitch(7);else{setOctave(octave+1);renderMobile();}},
-      chord:toggleMobileChord,chordComposer:()=>openChordComposer(),performance:()=>performancePanel.open(),loop:()=>transport.toggleLoop(),
+      chord:toggleMobileChord,spark:()=>openSpark(),chordComposer:()=>openChordComposer(),performance:()=>performancePanel.open(),loop:()=>transport.toggleLoop(),
       countDown:()=>adjustMeasureCount(-1),countUp:()=>adjustMeasureCount(1),
       addMeasure:()=>addMobileMeasures(1),addManyMeasures:()=>addMobileMeasures($('mobileMeasureCount').valueAsNumber),
       insertBefore:insertMeasureBefore,duplicateMeasure:duplicateMeasures,removeMeasures:removeSelectedMeasures,
@@ -1776,6 +1776,7 @@
     $('pasteSelection').disabled=!canPasteSelection();
     $('selectionInfo').textContent=selectionRange?`${selectionLabel()}を選択`:getSelected()?'音符・休符を選択':'カーソル位置から編集';
     renderTools();renderInspector();updateGhost();renderEnsemble();refreshOverview();renderRangeDirection();transport?.refresh();
+    if($('sparkDialog')?.open)sparkUI?.refreshPhrases?.();
   }
   function setMode(mode) {
     mobileDraft=null;mobileChord=null;
@@ -2087,6 +2088,7 @@
     ['前小節を複製','repeat bar maesetsu',()=>repeatPreviousBar(),'`'],
     ['リアルタイム録音入力','record quantize MIDI performance',()=>performancePanel.open('record'),''],
     ['コード名から和音を入力','chord symbol jazz harmony',()=>performancePanel.open('chord'),''],
+    ['ひらめき','spark inspiration 作曲 インスピレーション',()=>openSpark(),''],
     ['コードで作曲','chord composer pad タイムライン 初心者',()=>openChordComposer(),''],
     ['ポップ進行を入力','pop chord progression 王道 komuro',()=>openPopProgression(),''],
     ['音符入力モード','note entry onpu',()=>setCommandMode('entry'),'N'],
@@ -3105,6 +3107,91 @@
     fill?.addEventListener('change',persist);
     $('mixMidiEntry')?.addEventListener('change',event=>midiEntry?.setEnabled(event.target.checked));
   }
+  function sparkHarmonyContext(){
+    const Spark=window.KanadeInspirationSpark;
+    const draft=window.KanadeChordComposer?.loadDraft?.()||[];
+    const timeline=draft.length?draft:null;
+    return Spark.harmonyContext(canonicalPart(),caret.mi,timeline);
+  }
+  let sparkOllamaReady=false;
+  function sparkJudgeModel(){
+    try{
+      const raw=JSON.parse(localStorage.getItem('kanade.agent.chat.v1')||'null');
+      if(raw?.model)return raw.model;
+    }catch{}
+    return 'qwen2.5:3b';
+  }
+  async function refreshSparkAiJudge(){
+    const Agent=window.KanadeAgent,toggle=$('sparkAiJudge');
+    if(!Agent?.fetchTags||!toggle)return;
+    try{
+      const saved=JSON.parse(localStorage.getItem('kanade.spark.aiJudge.v1')||'null');
+      if(saved&&saved.on===false){sparkOllamaReady=false;$('sparkAiStatus').textContent='AI審査: オフ';return;}
+      const {response}=await Agent.fetchTags({signal:AbortSignal.timeout(3500)});
+      if(response.ok){
+        const data=await response.json();
+        sparkOllamaReady=(Agent.modelNames(data)||[]).length>0;
+        toggle.disabled=!sparkOllamaReady;
+        if(sparkOllamaReady)toggle.checked=saved?.on!==false;
+        $('sparkAiStatus').textContent=sparkOllamaReady?'AI審査: 待機':'AI審査: オフ';
+      }else{sparkOllamaReady=false;toggle.checked=false;}
+    }catch{sparkOllamaReady=false;if(toggle)toggle.checked=false;$('sparkAiStatus').textContent='AI審査: オフ';}
+  }
+  function setupSpark(){
+    if(!window.KanadeInspirationSparkUI)return;
+    const Judge=window.KanadeInspirationSparkJudge;
+    sparkUI=window.KanadeInspirationSparkUI.setup({
+      refreshAiJudge:refreshSparkAiJudge,
+      aiJudgeAvailable:()=>sparkOllamaReady,
+      judgePhrases:async(pool,ctx)=>Judge.judgePhrases(pool,ctx,{
+        enabled:sparkOllamaReady&&$('sparkAiJudge')?.checked,
+        postChat:window.KanadeAgent?.postChat,
+        model:sparkJudgeModel()
+      }),
+      harmonyContext:sparkHarmonyContext,
+      tempo:()=>score.tempo,
+      chordDraftHint:()=>{
+        const draft=window.KanadeChordComposer?.loadDraft?.();
+        return draft?.length?`コードコンポーザーのタイムライン: ${draft.map(t=>t.symbol).join(' – ')}`:'';
+      },
+      selectionFragment:()=>{
+        const Spark=window.KanadeInspirationSpark;
+        if(!selectionRange)return null;
+        return Spark.fragmentFromRange(canonicalPart(),selectionRange.start,selectionRange.end);
+      },
+      insertPhrase:fragment=>{
+        const at=selectionRange?.start??C.measureOffsets(score)[caret.mi];
+        const part=window.KanadeInspirationSpark.applyFragment(canonicalPart(),at,fragment);
+        const doc=documentScore();
+        const next=doc.ensembleParts||partIndex>0?C.replaceScorePart(doc,partIndex,part):part;
+        commit(next,'フレーズを挿入',selected,activeMeasure,{...caret},selectionRange);
+      },
+      currentScore:()=>canonicalPart(),
+      selectionRange:()=>selectionRange,
+      previewPitch:pitch=>{
+        try{stopAudio();sound.audition([pitch],C.soundName(score),C.soundingOffset(score)).catch(()=>{});}catch(_){}
+      },
+      previewChord:symbol=>{
+        try{stopAudio();sound.audition(P.chordPitches(symbol,4),C.soundName(score),C.soundingOffset(score)).catch(()=>{});}catch(_){}
+      },
+      commitSpark:spark=>{
+        const out=window.KanadeInspirationSpark.applySparkDocument(documentScore(),spark,{from:caret.mi+1,part:partIndex+1});
+        commit(out.document,out.summary,selected,activeMeasure,{...caret},selectionRange,{document:out.document,focusPart:out.focusPart});
+      },
+      insertVariation:fragment=>{
+        const at=selectionRange?.start??C.measureOffsets(score)[caret.mi];
+        const part=window.KanadeInspirationSpark.applyFragment(canonicalPart(),at,fragment);
+        const doc=documentScore();
+        const next=doc.ensembleParts||partIndex>0?C.replaceScorePart(doc,partIndex,part):part;
+        commit(next,'変奏を挿入',selected,activeMeasure,{...caret},selectionRange);
+      }
+    });
+  }
+  async function openSpark(){
+    setupSpark();
+    await refreshSparkAiJudge();
+    await sparkUI?.open();
+  }
   function setupPerformance(){
     performancePanel=window.KanadePerformancePanel.setup({
       chordAssistEnabled:()=>chordAssistEnabled,
@@ -3159,6 +3246,7 @@
       try{localStorage.setItem('kanade.instrumentLanguage',instrumentLanguage);}catch(_){}
       render();
     };
+    $('sparkOpen')?.addEventListener('click',()=>attempt(openSpark));
     $('chordComposerOpen')?.addEventListener('click',()=>attempt(openChordComposer));
     $('popProgressionOpen')?.addEventListener('click',()=>attempt(openPopProgression));
     const chordAssist=$('chordAssistToggle');
