@@ -438,5 +438,5 @@
   return {parts,summary:`和音を${levelLabel(level)}のリズムで配置しました。\n${reportProblems(parts,level)}`};
  }
 
- return {levelOf,levelLabel,rangeFor,fitOctave,plan,checkPart,reportProblems,fixPart,arrangeMelody,doublePart,voiceChords,describeRanges,parseChord,offsetOf,spell,formatRange};
+ return {levelOf,levelLabel,rangeFor,fitOctave,plan,checkPart,reportProblems,fixPart,arrangeMelody,doublePart,voiceChords,describeRanges,parseChord,offsetOf,spell,formatRange,writtenFromConcert};
 });

@@ -7,7 +7,10 @@ test('system prompt tells a wind-band model how to call the score tools',()=>{
  const prompt=Agent.systemPrompt();
  assert.match(prompt,/吹奏楽/);
  assert.match(prompt,/記譜音/);
+ assert.match(prompt,/writePhrase/);
  assert.match(prompt,/insertNotes/);
+ assert.match(prompt,/必ずツールで楽譜に書き込む/);
+ assert.match(prompt,/proposeEnsembleOptions/);
  assert.match(prompt,/applyEnsembleTemplate/);
  assert.match(prompt,/semitones を 2/);
  assert.match(prompt,/smallWind/);
@@ -36,6 +39,50 @@ test('score summary is read-only and lists title, parts, meter, tempo and key',(
  assert.equal(summary.includes('C5'),false);
  assert.equal(summary.includes(score.measures[0].events[0].id),false);
  assert.match(Agent.summarizeScore(null),/取得できません/);
+});
+
+test('buildChatPayload disables streaming when tools are attached',()=>{
+ Agent.registerTool({name:'getScoreSummary',description:'要約',handler:()=>''});
+ try{
+  const withTools=Agent.buildChatPayload({model:'qwen2.5:7b',history:[],includeTools:true});
+  assert.equal(withTools.stream,false);
+  assert.equal(withTools.tools.length,1);
+  const forced=Agent.buildChatPayload({model:'qwen2.5:7b',history:[],includeTools:true,stream:true});
+  assert.equal(forced.stream,true);
+  assert.equal(Agent.buildChatPayload({model:'qwen2.5:7b',history:[],includeTools:false}).stream,true);
+ }finally{Agent.unregisterTool('getScoreSummary');}
+});
+
+test('tool calls are read from streamed messages, JSON blocks, and tool_call tags',()=>{
+ const streamed=Agent.finishStream(Agent.absorbEvent(Agent.emptyStream(),{message:{role:'assistant',tool_calls:[{function:{name:'writePhrase',arguments:JSON.stringify({phrase:'G4 q'})}}]},done:true}));
+ assert.equal(streamed.toolCalls[0].name,'writePhrase');
+ assert.deepEqual(streamed.toolCalls[0].arguments,{phrase:'G4 q'});
+ const fenced=Agent.finishStream({content:'ファンファーレを書きます。\n```json\n{"name":"writePhrase","arguments":{"part":"trumpet","measure":1,"phrase":"G4 q G4 q"}}\n```',calls:[],error:''});
+ assert.equal(fenced.toolCalls[0].name,'writePhrase');
+ assert.match(fenced.content,/ファンファーレ/);
+ assert.equal(fenced.content.includes('```'),false);
+ const tagged=Agent.finishStream({content:'<tool_call>{"name":"insertNotes","arguments":{"measure":1,"notes":[{"step":"C","octave":5,"den":4}]}}</tool_call>',calls:[],error:''});
+ assert.equal(tagged.toolCalls[0].name,'insertNotes');
+ assert.deepEqual(Agent.parseToolCallsFromContent('[{"name":"getScoreSummary","arguments":{}}]')[0].name,'getScoreSummary');
+});
+
+test('runTurn executes tool calls embedded only in assistant text',async()=>{
+ let executed=null,round=0;
+ const result=await Agent.runTurn({
+  messages:[{role:'user',content:'ファンファーレを書いて'}],
+  async chat(messages,{onText}){
+   if(messages.some(item=>item.role==='tool'))return {content:'ファンファーレを書きました。',toolCalls:[]};
+   round++;
+   const finished=Agent.finishStream({content:'```json\n{"name":"writePhrase","arguments":{"measure":1,"phrase":"G4 q C5 q"}}\n```',calls:[],error:''});
+   onText?.(finished.content);
+   return finished;
+  },
+  async execute(call){executed=call;return {ok:true,summary:'書きました',wrote:1};}
+ });
+ assert.equal(round,1);
+ assert.equal(executed?.name,'writePhrase');
+ assert.match(result.content,/ファンファーレを書きました/);
+ assert.equal(result.writes,1);
 });
 
 test('chat messages prepend the prompt and summary without rewriting history',()=>{

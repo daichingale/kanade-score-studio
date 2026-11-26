@@ -3712,8 +3712,31 @@
     }
   };
   // AI edits use commit/save paths. applyRemote drops undo and is not an agent entry.
+  const aiEnsembleCompare={before:null,after:null,view:'after',partIndex:0};
   if(window.KanadeAgent?.attach)window.kanadeAgent=window.KanadeAgent.attach({
     getDocument:()=>documentScore(),
+    prepareEnsembleCompare(){
+      aiEnsembleCompare.before={doc:C.copy(documentScore()),partIndex};
+      aiEnsembleCompare.after=null;
+      aiEnsembleCompare.view='after';
+      aiEnsembleCompare.partIndex=partIndex;
+    },
+    finishEnsembleCompare(next){
+      aiEnsembleCompare.after={doc:C.copy(next),partIndex};
+      window.KanadeAgentUI?.setEnsembleCompare?.({...aiEnsembleCompare});
+    },
+    swapEnsembleCompare(side){
+      const snap=side==='before'?aiEnsembleCompare.before:aiEnsembleCompare.after;
+      if(!snap?.doc)throw Error(side==='before'?'変更前の編成がありません':'変更後の編成がありません');
+      aiEnsembleCompare.view=side;
+      const errors=C.validateScore(snap.doc);
+      if(errors.length)throw Error(errors[0]);
+      const parts=C.scoreParts(snap.doc);
+      const focus=Math.min(snap.partIndex??partIndex,parts.length-1);
+      if(voiceScope)endVoiceScope();
+      commit(parts[focus],side==='before'?'AI: 編成比較（変更前）':'AI: 編成比較（変更後）',null,Math.min(caret.mi,parts[focus].measures.length-1),{mi:caret.mi,index:0},null,{document:snap.doc});
+      window.KanadeAgentUI?.setEnsembleCompare?.({...aiEnsembleCompare});
+    },
     apply(next,label,focusPart){
       if(window.KanadeCollab?.active||window.KanadeCollab?.blocked)throw Error('共同編集中はAIから楽譜を変更できません。退出してから実行してください。');
       if(voiceScope)endVoiceScope();
