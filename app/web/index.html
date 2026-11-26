@@ -48,6 +48,7 @@
   <script defer src="src/chord-composer.js"></script>
   <script defer src="src/chord-composer-ui.js"></script>
   <script defer src="src/inspiration-spark.js"></script>
+  <script defer src="src/inspiration-spark-ai-judge.js"></script>
   <script defer src="src/inspiration-spark-ui.js"></script>
   <script defer src="src/verovio-mei.js"></script>
   <script defer src="src/verovio-view.js"></script>
@@ -778,6 +779,8 @@
     <div class="spark-stream-toolbar">
       <button type="button" id="sparkMore" class="solid">＋ もっと</button>
       <label class="spark-auto"><input type="checkbox" id="sparkAutoGenerate" checked> 自動で追加</label>
+      <label class="spark-auto"><input type="checkbox" id="sparkAiJudge" checked> AI審査</label>
+      <span id="sparkAiStatus" class="spark-ai-status">AI審査: …</span>
     </div>
     <div id="sparkPhraseStream" class="spark-phrase-stream" tabindex="0" aria-label="フレーズ候補"></div>
     <details class="spark-extra">

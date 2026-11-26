@@ -3063,9 +3063,41 @@
     const timeline=draft.length?draft:null;
     return Spark.harmonyContext(canonicalPart(),caret.mi,timeline);
   }
+  let sparkOllamaReady=false;
+  function sparkJudgeModel(){
+    try{
+      const raw=JSON.parse(localStorage.getItem('kanade.agent.chat.v1')||'null');
+      if(raw?.model)return raw.model;
+    }catch{}
+    return 'qwen2.5:3b';
+  }
+  async function refreshSparkAiJudge(){
+    const Agent=window.KanadeAgent,toggle=$('sparkAiJudge');
+    if(!Agent?.fetchTags||!toggle)return;
+    try{
+      const saved=JSON.parse(localStorage.getItem('kanade.spark.aiJudge.v1')||'null');
+      if(saved&&saved.on===false){sparkOllamaReady=false;$('sparkAiStatus').textContent='AI審査: オフ';return;}
+      const {response}=await Agent.fetchTags({signal:AbortSignal.timeout(3500)});
+      if(response.ok){
+        const data=await response.json();
+        sparkOllamaReady=(Agent.modelNames(data)||[]).length>0;
+        toggle.disabled=!sparkOllamaReady;
+        if(sparkOllamaReady)toggle.checked=saved?.on!==false;
+        $('sparkAiStatus').textContent=sparkOllamaReady?'AI審査: 待機':'AI審査: オフ';
+      }else{sparkOllamaReady=false;toggle.checked=false;}
+    }catch{sparkOllamaReady=false;if(toggle)toggle.checked=false;$('sparkAiStatus').textContent='AI審査: オフ';}
+  }
   function setupSpark(){
     if(!window.KanadeInspirationSparkUI)return;
+    const Judge=window.KanadeInspirationSparkJudge;
     sparkUI=window.KanadeInspirationSparkUI.setup({
+      refreshAiJudge:refreshSparkAiJudge,
+      aiJudgeAvailable:()=>sparkOllamaReady,
+      judgePhrases:async(pool,ctx)=>Judge.judgePhrases(pool,ctx,{
+        enabled:sparkOllamaReady&&$('sparkAiJudge')?.checked,
+        postChat:window.KanadeAgent?.postChat,
+        model:sparkJudgeModel()
+      }),
       harmonyContext:sparkHarmonyContext,
       tempo:()=>score.tempo,
       chordDraftHint:()=>{
@@ -3105,9 +3137,10 @@
       }
     });
   }
-  function openSpark(){
+  async function openSpark(){
     setupSpark();
-    sparkUI?.open();
+    await refreshSparkAiJudge();
+    await sparkUI?.open();
   }
   function setupPerformance(){
     performancePanel=window.KanadePerformancePanel.setup({

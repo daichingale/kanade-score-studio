@@ -457,7 +457,7 @@
  function buildPhraseStream(ctx,options={}){
   const seed=options.seed>>>0||1;
   const rng=mulberry32(seed);
-  const count=options.count||6;
+  const count=options.count||options.poolSize||6;
   const threshold=options.threshold??QUALITY_THRESHOLD;
   const seedFragment=options.seedFragment;
   const out=[],seen=new Set();
