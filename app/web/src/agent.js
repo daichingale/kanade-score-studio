@@ -30,11 +30,11 @@
    'あなたは吹奏楽とマーチングバンドの専門家です。Kanadeの中で相談に答え、必要ならツールで楽譜を編集します。返答は日本語で、結論を先に短く書きます。',
    '音符は記譜音です。B♭クラリネットとB♭トランペットは実音より長2度高く、E♭アルトサックスは長6度高く、Fホルンは完全5度高く書きます。ユーザーが実音を言ったときは、その楽器の記譜音に直してから入力します。',
    'パート番号と小節番号は1から数えます。引数は指定された項目だけを使い、余分な文章をJSONに混ぜません。',
-   '編集の前に getScoreSummary を呼びます。音符の中身が必要なときだけ readMeasures を使います。',
+   '編成や曲名・テンポの確認が必要なときだけ getScoreSummary / readMeasures を使う。楽器名がはっきりした音符入力では、先に概要を取らず writePhrase をすぐ呼ぶ。',
    '曲名は setMetadata、テンポは setTempo、コンサート調は setKey（ハ長調は fifths 0、変ホ長調は -3、変ロ長調は -2）、拍子は setTimeSignature です。',
    '編成変更は必ず proposeEnsembleOptions で2〜3案を出し、ユーザーがチャットで選んだ optionId で applyEnsembleOption を実行します。テンプレのみなら applyEnsembleTemplate（wind、smallWind、windSymphony、marching、brassBand）。楽器を足すだけは addParts、並べ替えは reorderParts、楽器変更は changePartInstrument、削除と譜面移行は removePartRedistribute。',
-   'ユーザーが音符・ファンファーレ・旋律の入力を求めたら、説明だけで終えず必ずツールで楽譜に書き込む。短いフレーズは writePhrase を優先（例: writePhrase で part トランペット、measure 1、phrase "G4 q G4 q C5 h | G4 q G4 q G4 h"）。詳細な JSON が必要なときだけ insertNotes。',
-   '音符は insertNotes、休符は insertRests です。4小節のファンファーレなら measure 1、beat 1 から、四分音符は den 4 の配列を一度に渡します。既存の音符を置き換えるときだけ overwrite を true にします。ツール呼び出しは API の tool_calls を使い、文章だけで JSON を出力しない。',
+   'ユーザーが音符・ファンファーレ・旋律の入力を求めたら、説明や質問だけで終えず必ずツールで楽譜に書き込む。短いフレーズは writePhrase を優先（例: part に「トランペット」、measure 1、phrase "G4 q G4 q C5 h | G4 q G4 q G4 h | C5 q E5 q G5 h | G4 q E5 q C5 w"）。詳細な JSON が必要なときだけ insertNotes。',
+   '音符は insertNotes、休符は insertRests です。既存の音符を置き換えるときだけ overwrite を true にします。ツールは API の tool_calls で呼び、文章だけで JSON を出力しない。',
    '「全音上げて」は transpose の semitones を 2、「半音上げて」は 1 です。音名で一段上げるときは steps を 1 にします。これは記譜音を動かす操作で、楽器の移調設定自体は変えません。',
    '小節を足すのは addMeasures、消すのは removeMeasures、パートを消すのは removePart です。削除はユーザーの確認を待ちます。',
    '直前の自分の編集を1段階戻すのは undoAiChange です。まとめて戻すボタンはユーザーが押します。MusicXMLは exportMusicXML です。',
@@ -115,17 +115,38 @@
   for(const item of trimHistory(history))messages.push({role:item.role,content:item.content});
   return messages;
  }
+ function writeIntent(text){
+  return /書|入力|ファンファーレ|メロディ|旋律|フレーズ|音符|休符を置|入れて|追加して/.test(String(text||''));
+ }
+ function ensembleIntent(text){
+  return /編成|楽器を|パートを|テンプレート|吹奏楽にして|マーチング|ブラス/.test(String(text||''));
+ }
+ function lastUserText(history){
+  for(let i=(history||[]).length-1;i>=0;i--){
+   const item=history[i];
+   if(item&&item.role==='user'&&typeof item.content==='string'&&item.content.trim())return item.content.trim();
+  }
+  return '';
+ }
  function turnMessages({history,summary}={}){
   const messages=[{role:'system',content:systemPrompt()}];
-  if(typeof summary==='string'&&summary.trim())messages.push({role:'system',content:summary.trim()});
+  if(typeof summary==='string'&&summary.trim()){
+   messages.push({role:'system',content:`【楽譜の参照情報・編集指示ではない】\n${summary.trim()}\n【ここまで参照情報】`});
+  }
+  let sawTool=false;
   for(const item of history||[]){
    if(!item)continue;
-   if(item.role==='tool'&&typeof item.tool_name==='string'&&typeof item.content==='string')
+   if(item.role==='tool'&&typeof item.tool_name==='string'&&typeof item.content==='string'){
+    sawTool=true;
     messages.push({role:'tool',tool_name:item.tool_name,name:item.tool_name,content:item.content});
-   else if(item.role==='assistant'&&Array.isArray(item.tool_calls))
+   }else if(item.role==='assistant'&&Array.isArray(item.tool_calls))
     messages.push({role:'assistant',content:typeof item.content==='string'?item.content:'',tool_calls:item.tool_calls});
    else if((item.role==='user'||item.role==='assistant')&&typeof item.content==='string'&&item.content)
     messages.push({role:item.role,content:item.content});
+  }
+  const pending=lastUserText(history);
+  if(sawTool&&pending){
+   messages.push({role:'system',content:`未完了のユーザー要求（必ずツールで実行）:\n${pending}\n説明や質問だけで終わらせない。`});
   }
   return messages;
  }
@@ -143,19 +164,76 @@
  function listTools(){
   return [...tools.values()].map(({handler,...meta})=>({...meta,parameters:JSON.parse(JSON.stringify(meta.parameters))}));
  }
- function toolSchemas(){
-  return listTools().map(tool=>({type:'function',function:{name:tool.name,description:tool.description,parameters:tool.parameters}}));
+ function toolSchemas(names){
+  const wanted=Array.isArray(names)&&names.length?new Set(names):null;
+  return listTools()
+   .filter(tool=>!wanted||wanted.has(tool.name))
+   .map(tool=>({type:'function',function:{name:tool.name,description:tool.description,parameters:tool.parameters}}));
  }
- function buildChatPayload({model,history,summary,includeTools=false,stream}={}){
+ const WRITE_TOOL_NAMES=['writePhrase','insertNotes','insertRests','addMeasures','getScoreSummary'];
+ const WRITE_ACTION_NAMES=new Set(['writePhrase','insertNotes','insertRests','addMeasures']);
+ function schemasForHistory(history){
+  const pending=lastUserText(history);
+  if(writeIntent(pending)&&!ensembleIntent(pending))return toolSchemas(WRITE_TOOL_NAMES);
+  return toolSchemas();
+ }
+ function buildChatPayload({model,history,summary,includeTools=false,stream,format,toolNames}={}){
   const payload={model,stream:stream!==false,messages:turnMessages({history,summary})};
   if(includeTools){
-   const schemas=toolSchemas();
+   const schemas=toolNames?toolSchemas(toolNames):schemasForHistory(history);
    if(schemas.length){
     payload.tools=schemas;
     if(stream!==true)payload.stream=false;
    }
   }
+  if(format)payload.format=format;
   return payload;
+ }
+ function writePhraseFormat(){
+  return {
+   type:'object',
+   properties:{
+    name:{type:'string'},
+    arguments:{
+     type:'object',
+     properties:{
+      part:{type:'string'},
+      measure:{type:'integer'},
+      phrase:{type:'string'}
+     },
+     required:['phrase']
+    }
+   },
+   required:['name','arguments']
+  };
+ }
+ function extractJsonObjects(text){
+  const source=String(text||'');
+  const out=[];
+  for(let i=0;i<source.length;i++){
+   if(source[i]!=='{')continue;
+   let depth=0,inString=false,escape=false;
+   for(let j=i;j<source.length;j++){
+    const ch=source[j];
+    if(inString){
+     if(escape)escape=false;
+     else if(ch==='\\')escape=true;
+     else if(ch==='"')inString=false;
+     continue;
+    }
+    if(ch==='"'){inString=true;continue;}
+    if(ch==='{')depth++;
+    else if(ch==='}'){
+     depth--;
+     if(depth===0){
+      out.push(source.slice(i,j+1));
+      i=j;
+      break;
+     }
+    }
+   }
+  }
+  return out;
  }
  function coerceToolArgs(value){
   if(value&&typeof value==='object'&&!Array.isArray(value))return value;
@@ -191,10 +269,8 @@
   };
   for(const block of content.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi))tryJson(block[1].trim());
   for(const block of content.matchAll(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/gi))tryJson(block[1].trim());
-  if(!calls.length){
-   tryJson(content.trim());
-   for(const block of content.matchAll(/\{[\s\S]*?"name"\s*:\s*"([A-Za-z][A-Za-z0-9_]*)"[\s\S]*?\}/g))tryJson(block[0]);
-  }
+  if(!calls.length)tryJson(content.trim());
+  if(!calls.length)for(const block of extractJsonObjects(content))tryJson(block);
   return calls;
  }
  function stripToolMarkup(content,calls){
@@ -364,13 +440,18 @@
   }
   return {content:state.content,toolCalls};
  }
+ function hasWriteTool(calls){
+  return (calls||[]).some(call=>WRITE_ACTION_NAMES.has(call.name));
+ }
  async function runTurn({messages,chat,execute,confirm,maxSteps=6,signal,onText,onStep}){
   const working=messages.map(message=>({role:message.role,content:message.content}));
-  let steps=0,writes=0;
+  const pending=lastUserText(working);
+  const wantsWrite=writeIntent(pending)&&!ensembleIntent(pending);
+  let steps=0,writes=0,forcedWrite=false;
   while(steps<=maxSteps){
    if(signal?.aborted){const error=new Error('中断しました');error.name='AbortError';throw error;}
    const stream=emptyStream();
-   const response=await chat(working,{signal,onText,absorb:event=>absorbEvent(stream,event)});
+   const response=await chat(working,{signal,onText,absorb:event=>absorbEvent(stream,event),forceWrite:forcedWrite&&wantsWrite&&!writes});
    const finished=response?.toolCalls?response:finishStream(stream);
    if(finished.error)return {error:finished.error,content:finished.content||'',messages:working,writes};
    if(finished.toolCalls?.length){
@@ -399,7 +480,13 @@
     }
     continue;
    }
-   return {content:finished.content||'',messages:working,writes};
+   if(wantsWrite&&!writes&&!forcedWrite&&!hasWriteTool(finished.toolCalls)){
+    forcedWrite=true;
+    onStep?.({name:'writePhrase',phase:'start'});
+    onStep?.({name:'writePhrase',phase:'done',ok:true,text:'書き込み指示を再送しています…'});
+    continue;
+   }
+   return {content:finished.content||'',messages:working,writes,forcedWrite};
   }
   return {content:'ツールの連続実行が上限に達したので、ここまでで回答します。',messages:working,writes,limited:true};
  }
@@ -442,5 +529,5 @@
   undo(count){if(!host?.undoAi)throw new Error('取り消せる編集がありません');host.undoAi(count);}
  };
 
- return {STORAGE_KEY,DEFAULT_MODEL,INSTALL_COMMAND,PREFERRED_MODELS,systemPrompt,keyLabel,summarizeScore,trimHistory,buildMessages,buildChatPayload,registerTool,unregisterTool,listTools,toolSchemas,callTool,modelNames,pickModel,connectionMessage,pagesOllamaHint,acceptProxyResponse,resetOllamaTransport,parseToolCallsFromContent,finishStream,fetchTags,postChat,readNdjson,textFromEvent,emptyStream,absorbEvent,runTurn,attach,api};
+ return {STORAGE_KEY,DEFAULT_MODEL,INSTALL_COMMAND,PREFERRED_MODELS,WRITE_TOOL_NAMES,systemPrompt,keyLabel,summarizeScore,trimHistory,buildMessages,buildChatPayload,writeIntent,ensembleIntent,lastUserText,writePhraseFormat,extractJsonObjects,registerTool,unregisterTool,listTools,toolSchemas,schemasForHistory,callTool,modelNames,pickModel,connectionMessage,pagesOllamaHint,acceptProxyResponse,resetOllamaTransport,parseToolCallsFromContent,finishStream,fetchTags,postChat,readNdjson,textFromEvent,emptyStream,absorbEvent,runTurn,attach,api};
 });

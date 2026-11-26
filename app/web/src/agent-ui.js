@@ -26,6 +26,8 @@
  let pendingConfirm=null;
  let pendingEnsembleChoices=null;
  let ensembleCompare=null;
+ let debugOn=false;
+ let lastDebug=null;
  let busy=false;
  let turn=0;
  let abort=null;
@@ -124,6 +126,12 @@
    card.append(text,actions);
    log.append(card);
   }
+  if(debugOn&&lastDebug){
+   const card=document.createElement('pre');
+   card.className='agent-debug';
+   card.textContent=lastDebug;
+   log.append(card);
+  }
   log.scrollTop=log.scrollHeight;
  }
  function fillModels(names){
@@ -208,8 +216,22 @@
    render();
   }catch(error){setStatus(error.message);}
  }
- async function streamChat(working,{signal,onText,absorb}){
-  const payload=Agent.buildChatPayload({model:select.value,history:working,summary:readSummary(),includeTools:true});
+ async function streamChat(working,{signal,onText,absorb,forceWrite=false}){
+  const summary=readSummary();
+  let payload;
+  if(forceWrite){
+   const pending=Agent.lastUserText(working);
+   payload=Agent.buildChatPayload({
+    model:select.value,
+    history:[...working,{role:'user',content:`次の要求を writePhrase だけで実行してください。説明不要。JSONのみ。\n要求: ${pending}\n例: {"name":"writePhrase","arguments":{"part":"トランペット","measure":1,"phrase":"G4 q G4 q C5 h | G4 q G4 q G4 h | C5 q E5 q G5 h | G4 q E5 q C5 w"}}`}],
+    summary,
+    includeTools:false,
+    stream:false,
+    format:Agent.writePhraseFormat()
+   });
+  }else{
+   payload=Agent.buildChatPayload({model:select.value,history:working,summary,includeTools:true});
+  }
   const response=await Agent.postChat(payload,{signal});
   if(!response.ok){
    const failure=await response.json().catch(()=>({}));
@@ -217,33 +239,55 @@
    error.status=response.status;error.body=failure;throw error;
   }
   const state=Agent.emptyStream();
+  let finished;
   if(payload.stream===false){
    const body=await response.json();
    if(typeof body?.error==='string'&&body.error.trim())state.error=body.error.trim();
-   Agent.absorbEvent(state,body?.message?body:{message:body});
-   if(state.content)onText?.(state.content);
-   return Agent.finishStream(state);
+   const contentText=typeof body?.message?.content==='string'?body.message.content:
+    body?.message?.content!=null?JSON.stringify(body.message.content):
+    (forceWrite?JSON.stringify(body):'');
+   if(forceWrite){
+    const fromFormat=Agent.parseToolCallsFromContent(contentText);
+    if(fromFormat.length)finished={content:'',toolCalls:fromFormat};
+   }
+   if(!finished){
+    Agent.absorbEvent(state,body?.message?body:{message:{role:'assistant',content:contentText,tool_calls:body?.message?.tool_calls}});
+    if(state.content)onText?.(state.content);
+    finished=Agent.finishStream(state);
+   }
+  }else{
+   const reader=response.body?.getReader?.();
+   if(!reader){
+    const body=await response.json();
+    Agent.absorbEvent(state,body?.message?body:{message:body});
+    if(state.content)onText?.(state.content);
+    finished=Agent.finishStream(state);
+   }else{
+    const decoder=new TextDecoder();
+    let buffer='';
+    while(true){
+     const chunk=await reader.read();
+     if(chunk.done)break;
+     buffer+=decoder.decode(chunk.value,{stream:true});
+     const parsed=Agent.readNdjson(buffer);
+     buffer=parsed.rest;
+     for(const event of parsed.events){absorb?.(event);Agent.absorbEvent(state,event);if(state.content)onText?.(state.content);}
+    }
+    buffer+=decoder.decode();
+    for(const event of Agent.readNdjson(buffer,{flush:true}).events){absorb?.(event);Agent.absorbEvent(state,event);}
+    finished=Agent.finishStream(state);
+   }
   }
-  const reader=response.body?.getReader?.();
-  if(!reader){
-   const body=await response.json();
-   Agent.absorbEvent(state,body?.message?body:{message:body});
-   if(state.content)onText?.(state.content);
-   return Agent.finishStream(state);
-  }
-  const decoder=new TextDecoder();
-  let buffer='';
-  while(true){
-   const chunk=await reader.read();
-   if(chunk.done)break;
-   buffer+=decoder.decode(chunk.value,{stream:true});
-   const parsed=Agent.readNdjson(buffer);
-   buffer=parsed.rest;
-   for(const event of parsed.events){absorb?.(event);Agent.absorbEvent(state,event);if(state.content)onText?.(state.content);}
-  }
-  buffer+=decoder.decode();
-  for(const event of Agent.readNdjson(buffer,{flush:true}).events){absorb?.(event);Agent.absorbEvent(state,event);}
-  return Agent.finishStream(state);
+  lastDebug=[
+   `toolsSent=${payload.tools?payload.tools.length:0}`,
+   `stream=${payload.stream}`,
+   `forceWrite=${!!forceWrite}`,
+   `format=${payload.format?'yes':'no'}`,
+   `toolCalls=${(finished.toolCalls||[]).map(call=>call.name).join(',')||'(none)'}`,
+   `content=${(finished.content||'').slice(0,180)}`
+  ].join('\n');
+  if(debugOn)render();
+  return finished;
  }
  function readSummary(){
   try{
@@ -276,7 +320,10 @@
      const label=root.KanadeAgentTools?.stepLabel(step.name)||step.name;
      if(step.phase==='start')liveSteps.push(`${label}しています…`);
      else if(step.phase==='done'){
-      liveSteps[liveSteps.length-1]=step.text;
+      const short=step.name==='getScoreSummary'?'楽譜の概要を確認しました。':
+       step.name==='writePhrase'&&/再送/.test(step.text||'')?step.text:
+       (step.text||'完了');
+      liveSteps[liveSteps.length-1]=short.length>160?`${label}しました。`:short;
       if(step.proposal?.options?.length)pendingEnsembleChoices=step.proposal;
      }
      draft='';render();
@@ -319,6 +366,8 @@
   setBusy(false);save();render();
  }
 
+ const debugToggle=$('agentDebug');
+ const updateBtn=$('agentUpdate');
  load();render();setStatus('パネルを開くと Ollama への接続を確認します。');
  for(const button of [toggle,mobile,menu])button?.addEventListener('click',togglePanel);
  closeBtn.addEventListener('click',close);
@@ -326,6 +375,25 @@
  clearBtn.addEventListener('click',clearHistory);
  stopBtn.addEventListener('click',stop);
  select.addEventListener('change',()=>{model=select.value;save();});
+ debugToggle?.addEventListener('change',()=>{debugOn=!!debugToggle.checked;render();});
+ updateBtn?.addEventListener('click',async()=>{
+  try{
+   const reg=await navigator.serviceWorker?.getRegistration?.();
+   await reg?.update?.();
+   const workers=[reg?.waiting,reg?.installing].filter(Boolean);
+   for(const worker of workers)worker.postMessage?.({type:'SKIP_WAITING'});
+   location.reload();
+  }catch{location.reload();}
+ });
+ if('serviceWorker' in navigator){
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{if(updateBtn)updateBtn.hidden=false;});
+  navigator.serviceWorker.ready.then(reg=>{
+   reg.addEventListener('updatefound',()=>{
+    const worker=reg.installing;
+    worker?.addEventListener('statechange',()=>{if(worker.state==='installed'&&navigator.serviceWorker.controller&&updateBtn)updateBtn.hidden=false;});
+   });
+  }).catch(()=>{});
+ }
  form.addEventListener('submit',event=>{
   event.preventDefault();
   const text=input.value;

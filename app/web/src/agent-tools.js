@@ -130,9 +130,17 @@
   if(tick<0||tick>=C.barTicks(part,measureIndex))fail('拍が小節の長さを超えています');
   return tick;
  }
+ function coerceDen(value){
+  if(typeof value==='string'){
+   const letter=value.trim().toLowerCase();
+   const map={w:1,h:2,q:4,e:8,s:16,t:32};
+   if(map[letter]!=null)return map[letter];
+  }
+  return value;
+ }
  function makeEvent(spec,tieStart){
   if(!spec||typeof spec!=='object')fail('音符の指定が不正です');
-  const den=integer(spec.den??4,'音価',1,64);
+  const den=integer(coerceDen(spec.den??4),'音価',1,64);
   if(!DENOMS.has(den))fail('音価は1、2、4、8、16、32、64のいずれかです');
   const dots=integer(spec.dots??0,'付点',0,2);
   if(spec.type==='rest'||spec.rest===true)return C.makeRest(den,dots);
