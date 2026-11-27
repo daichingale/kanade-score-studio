@@ -64,6 +64,34 @@ test('inspireSpark writes a motif and can confirm overwrite',()=>{
  assert.match(again,/置き換えます/);
 });
 
+test('inspireSpark falls back to writePhrase when Spark global is missing',()=>{
+ const held=globalThis.KanadeInspirationSpark;
+ const sparkPath=require.resolve('../src/inspiration-spark.js');
+ const cached=require.cache[sparkPath];
+ delete require.cache[sparkPath];
+ globalThis.KanadeInspirationSpark=null;
+ const Module=require('module');
+ const original=Module._load;
+ Module._load=function(request,parent,isMain){
+  if(String(request).includes('inspiration-spark'))return null;
+  return original.apply(this,arguments);
+ };
+ try{
+  const score=C.createScore();
+  const out=Tools.run(score,'inspireSpark',{mood:'ballad',bars:8,measure:1,apply:true});
+  assert.ok(out.document);
+  assert.match(out.summary,/内蔵フレーズ|小節/);
+  const part=C.scoreParts(out.document)[0];
+  assert.ok(part.measures.length>=8);
+  assert.equal(part.measures.slice(0,8).filter(bar=>bar.events.some(event=>event.type==='note')).length,8);
+ }finally{
+  Module._load=original;
+  if(cached)require.cache[sparkPath]=cached;
+  else delete require.cache[sparkPath];
+  globalThis.KanadeInspirationSpark=held;
+ }
+});
+
 test('writePhrase overwrite replaces existing notes and asks for confirmation',()=>{
  let score={...C.createScore(),instrument:'トランペット',instrumentKey:'trumpet'};
  score=Tools.run(score,'writePhrase',{part:'trumpet',measure:1,phrase:'G4 q G4 q C5 h'}).document;

@@ -1,14 +1,20 @@
 /* Composition inspiration: seeded rolls, motifs, variations, local history. */
 (function(root,factory){
- const api=factory(
+ try{
+  const api=factory(
    root.KanadeCore||(typeof require==='function'?require('./core.js'):null),
    root.KanadePerformance||(typeof require==='function'?require('./performance.js'):null),
    root.KanadePopProgression||(typeof require==='function'?require('./pop-progression.js'):null),
    root.KanadeEditing||(typeof require==='function'?require('./editing.js'):null)
- );
- if(typeof module==='object'&&module.exports)module.exports=api;
- root.KanadeInspirationSpark=api;
+  );
+  if(typeof module==='object'&&module.exports)module.exports=api;
+  root.KanadeInspirationSpark=api;
+ }catch(error){
+  try{console.error('KanadeInspirationSpark failed to load',error);}catch(_){}
+  root.KanadeInspirationSpark=null;
+ }
 })(typeof globalThis!=='undefined'?globalThis:this,function(C,P,Pop,B){
+ if(!C||!P||!Pop||!B)throw new Error('inspiration-spark missing dependency');
  'use strict';
  const HISTORY_KEY='kanade.inspiration.history.v1';
  const HISTORY_LIMIT=24;

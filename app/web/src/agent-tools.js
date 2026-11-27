@@ -35,9 +35,21 @@
 
  function fail(message){throw new Error(message);}
  function sparkApi(){
-  const api=(root&&root.KanadeInspirationSpark)||(typeof require==='function'?require('./inspiration-spark.js'):null);
-  if(!api)fail('ひらめき機能が読み込まれていません');
-  return api;
+  return (root&&root.KanadeInspirationSpark)||(typeof require==='function'?require('./inspiration-spark.js'):null);
+ }
+ function popApi(){
+  return (root&&root.KanadePopProgression)||Pop||(typeof require==='function'?require('./pop-progression.js'):null);
+ }
+ function builtInSparkPhrase(args={}){
+  const bars=Math.max(1,Math.min(8,Number.isInteger(args.bars)?args.bars:Number.isInteger(args.measures)?args.measures:4));
+  const mood=String(args.mood||'').toLowerCase();
+  const ballad=/ballad|切ない|sad|melancholy|穏やか|calm|gentle/.test(mood);
+  const motifs=ballad
+   ?['E4 q G4 q A4 h','A4 q G4 q E4 h','D4 q F4 q A4 h','E4 q D4 q C4 h']
+   :['G4 q G4 q C5 h','G4 q A4 q G4 h','E4 q G4 q C5 h','D4 q E4 q G4 h'];
+  const lines=[];
+  for(let i=0;i<bars;i++)lines.push(motifs[i%motifs.length]);
+  return lines.join(' | ');
  }
  function resolveSparkMood(Spark,value){
   const text=String(value||'').trim();
@@ -54,19 +66,29 @@
  }
  function planInspireSpark(doc,args){
   const Spark=sparkApi();
+  const index=resolvePart(doc,args.part??1);
+  const from=integer(args.measure??args.from??1,'開始小節',1,500)-1;
+  const apply=args.apply===undefined?true:flag(args.apply);
+  const part=partsOf(doc)[index];
+  if(!Spark){
+   const bars=Math.max(1,Math.min(8,Number.isInteger(args.bars)?args.bars:Number.isInteger(args.measures)?args.measures:4));
+   const end=from+bars-1;
+   const conflict=[];
+   for(let mi=from;mi<=end&&mi<part.measures.length;mi++){
+    if((part.measures[mi].events||[]).some(event=>event.type==='note'))conflict.push(mi);
+   }
+   return {Spark:null,fallback:true,bars,index,from,end,conflict,name:part.instrument,apply,args};
+  }
   const seed=Number.isInteger(args.seed)?args.seed:Number.isInteger(Number(args.seed))?Number(args.seed):((Math.random()*0xffffffff)>>>0);
   const mood=resolveSparkMood(Spark,args.mood);
   const bars=Number.isInteger(args.bars)?args.bars:Number.isInteger(args.measures)?args.measures:undefined;
   const spark=Spark.rollSpark(seed,mood?{mood}:null,mood?{mood:true}:Spark.emptyLocks(),bars?{bars}: {});
-  const index=resolvePart(doc,args.part??1);
-  const from=integer(args.measure??args.from??1,'開始小節',1,500)-1;
   const end=from+spark.bars-1;
-  const part=partsOf(doc)[index];
   const conflict=[];
   for(let mi=from;mi<=end&&mi<part.measures.length;mi++){
    if((part.measures[mi].events||[]).some(event=>event.type==='note'))conflict.push(mi);
   }
-  return {Spark,spark,index,from,end,conflict,name:part.instrument,apply:args.apply===undefined?true:flag(args.apply)};
+  return {Spark,spark,fallback:false,index,from,end,conflict,name:part.instrument,apply};
  }
  function integer(value,label,min,max){
   const number=typeof value==='string'&&/^-?\d+$/.test(value.trim())?Number(value.trim()):value;
@@ -113,7 +135,10 @@
    return name===query||name.includes(query)||key===query?[index]:[];
   });
   if(hits.length===1)return hits[0];
-  if(!hits.length)fail(`「${query}」というパートが見つかりません`);
+  if(!hits.length){
+   if(parts.length===1)return 0;
+   fail(`「${query}」というパートが見つかりません`);
+  }
   fail(`「${query}」に複数のパートが一致します。番号で指定してください`);
  }
  function hasNotes(doc){
@@ -750,6 +775,14 @@
    },
    run(doc,args){
     const plan=planInspireSpark(doc,args);
+    if(plan.fallback||!plan.Spark){
+     if(!plan.apply)return {summary:`ひらめきモジュール未読込のため、内蔵フレーズ（${plan.bars}小節）で代用できます。`};
+     const phrase=builtInSparkPhrase({...args,bars:plan.bars,mood:args.mood||'ballad'});
+     const out=operations.writePhrase.run(doc,{
+      part:args.part??plan.index+1,measure:plan.from+1,phrase,overwrite:args.overwrite!==false||plan.conflict.length>0
+     });
+     return {document:out.document,focusPart:out.focusPart??plan.index,summary:`内蔵フレーズでバラード風の${plan.bars}小節を書きました。\n${out.summary}`};
+    }
     const {Spark,spark}=plan;
     const lines=[
      `ムード: ${spark.mood}`,
@@ -780,9 +813,11 @@
     return busy?`${from+1}〜${to+1}小節の既存音符を伴奏で置き換えます。`:null;
    },
    run(doc,args){
+    const PopRuntime=popApi();
+    if(!PopRuntime?.applyDocument)fail('ポップ進行機能が読み込まれていません');
     const index=resolvePart(doc,args.part??1);
     const mode=((partsOf(doc)[index].key||0)<0)?'minor':'major';
-    const out=Pop.applyDocument(doc,{...args,part:index+1,mode,progression:args.progression||args.template||'auto'});
+    const out=PopRuntime.applyDocument(doc,{...args,part:index+1,mode,progression:args.progression||args.template||'auto'});
     return {document:out.document,focusPart:out.focusPart,summary:out.summary};
    }
   },

@@ -40,7 +40,7 @@
    '小節を足すのは addMeasures、消すのは removeMeasures、パートを消すのは removePart です。削除はユーザーの確認を待ちます。',
    '直前の自分の編集を1段階戻すのは undoAiChange です。まとめて戻すボタンはユーザーが押します。MusicXMLは exportMusicXML です。',
    'ポップやJ-POPの王道進行で伴奏を入れるときは applyPopProgression を使う。progression に auto、IV-V-iii-vi、vi-IV-I-V、canon、komuro など。grid は bar か half、voicing は block・root5・arpeggio。',
-   '作曲・ひらめき・バラード風の短い旋律を楽譜に書くときは inspireSpark を使う（mood・part・measure・bars・seed。既定で apply して書き込む。提案だけなら apply:false）。決まった音型のファンファーレや明示フレーズは writePhrase。',
+   '作曲・ひらめき・バラード風の短い旋律を楽譜に書くときは inspireSpark を使う（mood・part・measure・bars・seed。既定で apply して書き込む。提案だけなら apply:false）。ユーザーが「N小節」と書いたら bars に N を必ず渡す（最大8）。決まった音型のファンファーレや明示フレーズは writePhrase。',
    '人数や足りない楽器から編成を考えるときは proposeInstrumentation を使う。headcountは人数、missingは抜く楽器、styleはconcert、small、marching、bright、levelは初級、中級、上級。確認が出るまで楽譜は変えない。',
    '旋律を編成に広げるときは arrangeMelody を使う。音程や移調の計算はせず、doublePart、voiceChords、fixRanges、getInstrumentRanges、checkRanges に任せる。書き終えたら checkRanges の結果を日本語で伝える。',
    'ツールは必要な回数だけ使い、同じ失敗を繰り返しません。コンクール規定や著作権は記憶だけで断定しません。音域は指定された難易度の実用音域に合わせます。'
@@ -120,7 +120,14 @@
   return /書|入力|ファンファーレ|メロディ|旋律|フレーズ|音符|休符を置|入れて|追加して|作曲|ひらめき|作って|inspire/i.test(String(text||''));
  }
  function sparkIntent(text){
-  return /ひらめき|作曲|inspire|バラード|ballad|モチーフ|着想/i.test(String(text||''));
+  return /ひらめき|作曲|inspire|バラード|ballad|モチーフ|着想|イントロ/i.test(String(text||''));
+ }
+ function inferBarsFromText(text){
+  const match=String(text||'').match(/(\d+)\s*小節/);
+  if(!match)return null;
+  const n=Number(match[1]);
+  if(!Number.isInteger(n)||n<1)return null;
+  return Math.min(8,n);
  }
  function ensembleIntent(text){
   return /編成|楽器を|パートを|テンプレート|吹奏楽にして|マーチング|ブラス/.test(String(text||''));
@@ -285,6 +292,7 @@
   const args=call.arguments||{};
   if(/inspire|spark|compose|motif/.test(lower))return {name:'inspireSpark',arguments:normalizeToolArgs('inspireSpark',{apply:true,...args})};
   if(/insertnotes|addnotes/.test(lower))return {name:'insertNotes',arguments:normalizeToolArgs('insertNotes',args)};
+  if(/addmeasures|insertmeasures/.test(lower))return {name:'addMeasures',arguments:normalizeToolArgs('addMeasures',args)};
   if(/writephrase|fanfare/.test(lower)){
    const next={...args};
    if(next.measure==null&&next.from!=null)next.measure=next.from;
@@ -300,12 +308,13 @@
  function normalizeToolRecord(record){
   if(!record||typeof record!=='object')return null;
   const fn=record.function&&typeof record.function==='object'?record.function:null;
-  const name=typeof record.action==='string'?record.action:
+  const name=typeof record.function==='string'?record.function:
+   typeof record.action==='string'?record.action:
    typeof record.name==='string'?record.name:
    typeof record.tool==='string'?record.tool:
    fn&&typeof fn.name==='string'?fn.name:'';
   if(!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(name))return null;
-  const args=coerceToolArgs(record.arguments??record.args??record.parameters??fn?.arguments);
+  const args=coerceToolArgs(record.arguments??record.args??record.parameters??fn?.arguments??fn?.args??fn?.parameters);
   return remapToolCall({name,arguments:args});
  }
  function parsePythonishCalls(content){
@@ -361,7 +370,7 @@
  function looksLikeToolPayload(text){
   const source=String(text||'');
   if(!source.trim())return false;
-  if(/"(action|name|tool)"\s*:/.test(source)&&/"(arguments|args|parameters)"\s*:/.test(source))return true;
+  if(/"(action|name|tool|function)"\s*:/.test(source)&&/"(arguments|args|parameters)"\s*:/.test(source))return true;
   if(/\b[A-Za-z][A-Za-z0-9_]*\s*\([^)\n]*=/.test(source))return true;
   return false;
  }
@@ -378,14 +387,16 @@
   });
   text=text.replace(/\n{3,}/g,'\n\n').trim();
   if(!text&&calls?.length)return '';
-  if(looksLikeToolPayload(text)&&parseToolCallsFromContent(text).length)return '';
+  if(looksLikeToolPayload(text))return '';
   return text;
  }
  function publicAssistantText(content,toolCalls){
   const cleaned=stripToolMarkup(content,toolCalls||[]);
-  if(cleaned)return cleaned;
+  if(cleaned&&!looksLikeToolPayload(cleaned))return cleaned;
   if(toolCalls?.length)return '';
-  if(looksLikeToolPayload(content))return 'ツール呼び出しを解釈できませんでした。もう一度、短く指示してください。';
+  if(looksLikeToolPayload(cleaned)||looksLikeToolPayload(content)){
+   return 'ツール呼び出しを解釈できませんでした。もう一度、短く指示してください。';
+  }
   return typeof content==='string'?content.trim():'';
  }
  async function callTool(name,args,{confirmed=false}={}){
@@ -566,8 +577,18 @@
      const content=`${finished.content?finished.content+'\n':''}ツールの連続実行が上限に達したので、ここまでで回答します。`;
      return {content,messages:working,writes,limited:true};
     }
-    working.push({role:'assistant',content:finished.content||'',tool_calls:finished.toolCalls.map((call,index)=>({id:`call_${steps}_${index}`,type:'function',function:{name:call.name,arguments:call.arguments}}))});
-    for(const call of finished.toolCalls){
+    const enriched=finished.toolCalls.map(call=>{
+     if(call.name!=='inspireSpark')return call;
+     const args={...(call.arguments||{})};
+     if(args.bars==null&&args.measures==null){
+      const bars=inferBarsFromText(pending);
+      if(bars!=null)args.bars=bars;
+     }
+     if(args.apply===undefined)args.apply=true;
+     return {name:call.name,arguments:args};
+    });
+    working.push({role:'assistant',content:finished.content||'',tool_calls:enriched.map((call,index)=>({id:`call_${steps}_${index}`,type:'function',function:{name:call.name,arguments:call.arguments}}))});
+    for(const call of enriched){
      onStep?.({name:call.name,phase:'start'});
      let result;
      try{result=await execute(call);}
@@ -635,5 +656,5 @@
   undo(count){if(!host?.undoAi)throw new Error('取り消せる編集がありません');host.undoAi(count);}
  };
 
- return {STORAGE_KEY,DEFAULT_MODEL,INSTALL_COMMAND,PREFERRED_MODELS,WRITE_TOOL_NAMES,systemPrompt,keyLabel,summarizeScore,trimHistory,buildMessages,buildChatPayload,writeIntent,sparkIntent,ensembleIntent,lastUserText,writePhraseFormat,extractJsonObjects,parsePythonishCalls,remapToolCall,normalizeNoteArg,toCamelToolName,looksLikeToolPayload,stripToolMarkup,publicAssistantText,registerTool,unregisterTool,listTools,toolSchemas,schemasForHistory,callTool,modelNames,pickModel,connectionMessage,pagesOllamaHint,acceptProxyResponse,resetOllamaTransport,parseToolCallsFromContent,finishStream,fetchTags,postChat,readNdjson,textFromEvent,emptyStream,absorbEvent,runTurn,attach,api};
+ return {STORAGE_KEY,DEFAULT_MODEL,INSTALL_COMMAND,PREFERRED_MODELS,WRITE_TOOL_NAMES,systemPrompt,keyLabel,summarizeScore,trimHistory,buildMessages,buildChatPayload,writeIntent,sparkIntent,ensembleIntent,inferBarsFromText,lastUserText,writePhraseFormat,extractJsonObjects,parsePythonishCalls,remapToolCall,normalizeNoteArg,toCamelToolName,looksLikeToolPayload,stripToolMarkup,publicAssistantText,registerTool,unregisterTool,listTools,toolSchemas,schemasForHistory,callTool,modelNames,pickModel,connectionMessage,pagesOllamaHint,acceptProxyResponse,resetOllamaTransport,parseToolCallsFromContent,finishStream,fetchTags,postChat,readNdjson,textFromEvent,emptyStream,absorbEvent,runTurn,attach,api};
 });
