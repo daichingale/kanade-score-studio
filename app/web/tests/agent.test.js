@@ -69,6 +69,32 @@ test('tool calls are read from streamed messages, JSON blocks, and tool_call tag
  const nested=Agent.parseToolCallsFromContent('portun\n{"name":"insertNotes","arguments":{"measure":1,"notes":[{"step":"G","octave":4,"den":"w"}]}}');
  assert.equal(nested[0].name,'insertNotes');
  assert.equal(nested[0].arguments.notes[0].step,'G');
+ const action=Agent.parseToolCallsFromContent('{"action":"insert_notes","args":{"measure":1,"notes":[{"step":"Eb","octave":4,"den":8,"alter":0,"dots":0,"tie":null},{"step":"F#","octave":4,"den":8,"tie":null}]}}');
+ assert.equal(action[0].name,'insertNotes');
+ assert.equal(action[0].arguments.notes[0].step,'E');
+ assert.equal(action[0].arguments.notes[0].alter,-1);
+ assert.equal(action[0].arguments.notes[1].step,'F');
+ assert.equal(action[0].arguments.notes[1].alter,1);
+ assert.equal('tie' in action[0].arguments.notes[0],false);
+ const toolShape=Agent.parseToolCallsFromContent('{"tool":"write_phrase","parameters":{"phrase":"G4 q C5 h"}}');
+ assert.equal(toolShape[0].name,'writePhrase');
+ assert.equal(toolShape[0].arguments.phrase,'G4 q C5 h');
+ const camelInsert=Agent.parseToolCallsFromContent('{"name":"insertNotes","arguments":{"measure":1,"notes":[{"step":"Bb","octave":4,"den":4}]}}');
+ assert.equal(camelInsert[0].arguments.notes[0].step,'B');
+ assert.equal(camelInsert[0].arguments.notes[0].alter,-1);
+ const py=Agent.parseToolCallsFromContent('inspireSpark(mood="ballad", part=1, seed=1)');
+ assert.equal(py[0].name,'inspireSpark');
+ assert.equal(py[0].arguments.mood,'ballad');
+ assert.equal(py[0].arguments.part,1);
+ const hidden=Agent.finishStream({content:'{"action":"insert_notes","args":{"measure":1,"notes":[{"step":"C","octave":4,"den":8}]}}',calls:[],error:''});
+ assert.equal(hidden.toolCalls[0].name,'insertNotes');
+ assert.equal(hidden.content.includes('{'),false);
+ assert.equal(hidden.content.includes('insert_notes'),false);
+ assert.equal(hidden.rawContent.includes('insert_notes'),true);
+ const bad=Agent.finishStream({content:'{"action":"not_a_real_tool","args":{"x":1}}',calls:[],error:''});
+ assert.match(bad.content,/解釈できません|指示/);
+ assert.equal(bad.content.includes('"action"'),false);
+ assert.equal(bad.rawContent.includes('"action"'),true);
 });
 
 test('write requests keep the user ask last and shrink the tool list',()=>{
@@ -84,6 +110,7 @@ test('write requests keep the user ask last and shrink the tool list',()=>{
   assert.match(payload.messages.at(-1).content,/ファンファーレ/);
   assert.match(payload.messages[1].content,/参照情報/);
   assert.deepEqual(payload.tools.map(t=>t.function.name).sort(),['getScoreSummary','insertNotes','writePhrase'].sort());
+  assert.equal(payload.tools.some(t=>t.function.name==='proposeEnsembleOptions'),false);
   assert.equal(Agent.writeIntent(history[0].content),true);
  }finally{
   for(const name of ['writePhrase','insertNotes','getScoreSummary','proposeEnsembleOptions'])Agent.unregisterTool(name);
@@ -223,6 +250,34 @@ test('ndjson chunks decode independently and a partial line waits',()=>{
  assert.equal(Agent.textFromEvent(flushed.events[0]).content,'後');
  const broken=Agent.readNdjson('not-json\n',{flush:true});
  assert.equal(Agent.textFromEvent(broken.events[0]).error,'応答の形式を読み取れませんでした');
+});
+
+test('raw insert_notes JSON is executed and summarized without showing the payload',async()=>{
+ const payload='{"action":"insert_notes","args":{"measure":1,"notes":[{"step":"Eb","octave":4,"den":8,"alter":0,"tie":null},{"step":"Ab","octave":4,"den":8,"tie":null}]}}';
+ const steps=[];
+ const result=await Agent.runTurn({
+  messages:[{role:'user',content:'1小節目に入れて'}],
+  async chat(messages,{absorb}){
+   if(messages.some(message=>message.role==='tool')){
+    absorb({message:{content:'完了しました。',done:true},done:true});
+    return null;
+   }
+   absorb({message:{content:payload},done:true});
+   return null;
+  },
+  async execute(call){
+   assert.equal(call.name,'insertNotes');
+   assert.equal(call.arguments.notes[0].step,'E');
+   assert.equal(call.arguments.notes[0].alter,-1);
+   assert.equal('tie' in call.arguments.notes[0],false);
+   return {ok:true,summary:'ピアノの1小節から2音を入力しました',wrote:1};
+  },
+  onStep:step=>steps.push(step)
+ });
+ assert.equal(result.writes,1);
+ assert.equal(result.content.includes('insert_notes'),false);
+ assert.equal(result.content.includes('"action"'),false);
+ assert.match(steps.find(step=>step.phase==='done')?.text||'',/入力しました/);
 });
 
 test('tool loop sends results back and stops for confirmation or the step limit',async()=>{

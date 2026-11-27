@@ -97,14 +97,15 @@
   return {bars,den,notes};
  }
  function emptyLocks(){return {key:false,tempo:false,rhythm:false,progression:false,motif:false,mood:false};}
- function rollSpark(seed,prev=null,locks=emptyLocks()){
+ function rollSpark(seed,prev=null,locks=emptyLocks(),options={}){
   const rng=mulberry32(seed>>>0);
   const mood=locks.mood&&prev?prev.mood:pick(rng,MOODS);
   const key=locks.key&&prev?prev.key:keyFor(mood,rng);
   const mode=locks.key&&prev?.mode?prev.mode:modeFor(key,mood);
   const tempo=locks.tempo&&prev?prev.tempo:tempoFor(mood,rng);
   const time=locks.rhythm&&prev?prev.time:pick(rng,TIMES_BY_MOOD[mood]||[{num:4,den:4}]);
-  const bars=2+Math.floor(rng()*3);
+  const asked=Number(options.bars);
+  const bars=Number.isInteger(asked)?Math.max(1,Math.min(8,asked)):2+Math.floor(rng()*3);
   const progression=locks.progression&&prev?{...prev.progression}:rollProgression(rng,key,mode,mood,bars);
   const motif=locks.motif&&prev?{...prev.motif,notes:prev.motif.notes.map(n=>({...n}))}:generateMotif(progression.timeline,time,key,mode,bars,rng);
   const scene=pick(rng,SCENE_PROMPTS);
@@ -160,8 +161,10 @@
  function applySparkDocument(doc,spark,options={}){
   const from=(options.from||1)-1;
   const partIndex=(options.part||1)-1;
-  const parts=C.scoreParts(doc).map(p=>({...p,key:spark.key,tempo:spark.tempo,time:spark.time}));
-  let part=ensureBarCount(parts[partIndex],from,spark.bars);
+  let parts=C.scoreParts(doc).map(p=>({...p,key:spark.key,tempo:spark.tempo,time:spark.time}));
+  const need=from+spark.bars;
+  parts=parts.map(part=>ensureBarCount(part,0,Math.max(need,part.measures.length)));
+  let part=parts[partIndex];
   part=clearBars(part,from,spark.bars);
   part=writeChordDirections(part,from,spark.progression.timeline);
   part=writeMotifPart(part,from,spark.motif,spark.key);
