@@ -36,6 +36,34 @@ test('writePhrase returns a helpful error for unknown tokens',()=>{
  assert.throws(()=>Tools.run(score,'writePhrase',{phrase:'X9 z'}),/読めません/);
 });
 
+test('insertNotes accepts accidental-in-step and ignores null ties',()=>{
+ const score=C.createScore();
+ const out=Tools.run(score,'insertNotes',{measure:1,notes:[
+  {step:'Eb',octave:4,den:8,alter:0,dots:0,tie:null},
+  {step:'F#',octave:4,den:8,tie:null},
+  {step:'Bb',octave:4,den:4}
+ ]});
+ const pitches=notes(out.document).map(event=>event.pitches[0]);
+ assert.equal(pitches[0].step,'E');
+ assert.equal(pitches[0].alter,-1);
+ assert.equal(pitches[1].step,'F');
+ assert.equal(pitches[1].alter,1);
+ assert.equal(pitches[2].step,'B');
+ assert.equal(pitches[2].alter,-1);
+});
+
+test('inspireSpark writes a motif and can confirm overwrite',()=>{
+ const score=C.createScore();
+ const preview=Tools.run(score,'inspireSpark',{mood:'ballad',seed:7,bars:2,apply:false});
+ assert.match(preview.summary,/ムード/);
+ assert.equal(preview.document,undefined);
+ const written=Tools.run(score,'inspireSpark',{mood:'ballad',part:1,measure:1,bars:2,seed:7,apply:true});
+ assert.ok(written.document);
+ assert.ok(C.scoreParts(written.document)[0].measures.some(bar=>bar.events.some(event=>event.type==='note')));
+ const again=Tools.confirmText(written.document,'inspireSpark',{mood:'ballad',part:1,measure:1,bars:2,seed:8,apply:true});
+ assert.match(again,/置き換えます/);
+});
+
 test('writePhrase overwrite replaces existing notes and asks for confirmation',()=>{
  let score={...C.createScore(),instrument:'トランペット',instrumentKey:'trumpet'};
  score=Tools.run(score,'writePhrase',{part:'trumpet',measure:1,phrase:'G4 q G4 q C5 h'}).document;

@@ -6,12 +6,11 @@
  const Ex=root.KanadeExport||(typeof require==='function'?require('./musicxml.js'):null);
  const Arrange=root.KanadeArrange||(typeof require==='function'?require('./agent-arrange.js'):null);
  const Pop=root.KanadePopProgression||(typeof require==='function'?require('./pop-progression.js'):null);
- const Spark=root.KanadeInspirationSpark||(typeof require==='function'?require('./inspiration-spark.js'):null);
  const Ensemble=root.KanadeAgentEnsemble||(typeof require==='function'?require('./agent-ensemble.js'):null);
- const api=factory(C,B,I,Ex,Arrange,Spark,Ensemble);
+ const api=factory(C,B,I,Ex,Arrange,Ensemble,Pop,root);
  if(typeof module==='object'&&module.exports)module.exports=api;
  root.KanadeAgentTools=api;
-})(typeof globalThis!=='undefined'?globalThis:this,function(C,B,I,Ex,Arrange,Spark,Ensemble){
+})(typeof globalThis!=='undefined'?globalThis:this,function(C,B,I,Ex,Arrange,Ensemble,Pop,root){
  'use strict';
  const DENOMS=new Set([1,2,4,8,16,32,64]);
  const KEY_NAMES={
@@ -35,6 +34,40 @@
  };
 
  function fail(message){throw new Error(message);}
+ function sparkApi(){
+  const api=(root&&root.KanadeInspirationSpark)||(typeof require==='function'?require('./inspiration-spark.js'):null);
+  if(!api)fail('ひらめき機能が読み込まれていません');
+  return api;
+ }
+ function resolveSparkMood(Spark,value){
+  const text=String(value||'').trim();
+  if(!text)return '';
+  if(Spark.MOODS.includes(text))return text;
+  const lower=text.toLowerCase();
+  const map={
+   ballad:'切ない',sad:'切ない',melancholy:'切ない',bright:'明るい',happy:'明るい',cheerful:'明るい',
+   heroic:'勇ましい',march:'勇ましい',mystery:'ミステリアス',mysterious:'ミステリアス',
+   calm:'穏やか',gentle:'穏やか',light:'軽快',lively:'軽快',grand:'荘厳',urgent:'切迫',tense:'切迫'
+  };
+  if(map[lower])return map[lower];
+  return Spark.MOODS.find(mood=>text.includes(mood))||'';
+ }
+ function planInspireSpark(doc,args){
+  const Spark=sparkApi();
+  const seed=Number.isInteger(args.seed)?args.seed:Number.isInteger(Number(args.seed))?Number(args.seed):((Math.random()*0xffffffff)>>>0);
+  const mood=resolveSparkMood(Spark,args.mood);
+  const bars=Number.isInteger(args.bars)?args.bars:Number.isInteger(args.measures)?args.measures:undefined;
+  const spark=Spark.rollSpark(seed,mood?{mood}:null,mood?{mood:true}:Spark.emptyLocks(),bars?{bars}: {});
+  const index=resolvePart(doc,args.part??1);
+  const from=integer(args.measure??args.from??1,'開始小節',1,500)-1;
+  const end=from+spark.bars-1;
+  const part=partsOf(doc)[index];
+  const conflict=[];
+  for(let mi=from;mi<=end&&mi<part.measures.length;mi++){
+   if((part.measures[mi].events||[]).some(event=>event.type==='note'))conflict.push(mi);
+  }
+  return {Spark,spark,index,from,end,conflict,name:part.instrument,apply:args.apply===undefined?true:flag(args.apply)};
+ }
  function integer(value,label,min,max){
   const number=typeof value==='string'&&/^-?\d+$/.test(value.trim())?Number(value.trim()):value;
   if(!Number.isInteger(number)||number<min||number>max)fail(`${label}は${min}から${max}の整数で指定してください`);
@@ -165,17 +198,36 @@
   }
   return value;
  }
+ function normalizePitchFields(spec){
+  if(!spec||typeof spec!=='object')return spec;
+  const next={...spec};
+  let step=String(next.step??'').trim();
+  let alter=next.alter;
+  const split=step.match(/^([A-Ga-g])\s*([#b♯♭+-])$/);
+  if(split){
+   step=split[1];
+   const mark=split[2];
+   alter=(mark==='#'||mark==='♯'||mark==='+')?1:(mark==='b'||mark==='♭'||mark==='-')?-1:0;
+  }
+  next.step=step;
+  if(alter!==undefined&&alter!==null&&alter!=='')next.alter=alter;
+  else if(next.alter===undefined)next.alter=0;
+  if(next.tie===null||next.tie===undefined||next.tie===''||next.tie===false)delete next.tie;
+  return next;
+ }
  function makeEvent(spec,tieStart){
   if(!spec||typeof spec!=='object')fail('音符の指定が不正です');
-  const den=integer(coerceDen(spec.den??4),'音価',1,64);
+  const normalized=normalizePitchFields(spec);
+  const den=integer(coerceDen(normalized.den??4),'音価',1,64);
   if(!DENOMS.has(den))fail('音価は1、2、4、8、16、32、64のいずれかです');
-  const dots=integer(spec.dots??0,'付点',0,2);
-  if(spec.type==='rest'||spec.rest===true)return C.makeRest(den,dots);
-  const step=String(spec.step||'').toUpperCase();
-  const alter=integer(spec.alter??0,'臨時記号',-2,2);
-  const octave=integer(spec.octave??4,'オクターブ',0,8);
+  const dots=integer(normalized.dots??0,'付点',0,2);
+  if(normalized.type==='rest'||normalized.rest===true)return C.makeRest(den,dots);
+  const step=String(normalized.step||'').toUpperCase();
+  if(!/^[A-G]$/.test(step))fail(`音名「${spec.step}」が不正です`);
+  const alter=integer(normalized.alter??0,'臨時記号',-2,2);
+  const octave=integer(normalized.octave??4,'オクターブ',0,8);
   const note=C.makeNote({step,alter,octave},den,dots);
-  if(tieStart||flag(spec.tie))note.tieStart=true;
+  if(tieStart||flag(normalized.tie))note.tieStart=true;
   return note;
  }
  const PHRASE_DEN={w:1,h:2,q:4,e:8,s:16,t:32,W:1,H:2,Q:4,E:8,S:16,T:32};
@@ -686,19 +738,19 @@
    run(doc,args){return {summary:Arrange.describeRanges(partsOf(doc),Arrange.levelOf(args.level))};}
   },
   inspireSpark:{
-   description:'調・テンポ・拍子・ムード・コード進行・短いモチーフをまとめた「ひらめき」を生成する。seed で再現可能。apply を true にすると採用して書き込む。',
+   description:'ひらめき作曲。mood（明るい/切ない/ballad 等）、part、measure（開始小節）、bars（小節数）、seed。既定で楽譜に書き込む（apply:false で提案のみ）。既存音符がある範囲は確認後に置き換える。',
    parameters:{type:'object',properties:{
-    seed:{type:'integer'},mood:{type:'string'},apply:{type:'boolean'},from:{type:'integer'},part:{type:'integer'}
+    seed:{type:'integer'},mood:{type:'string'},apply:{type:'boolean'},measure:{type:'integer'},from:{type:'integer'},
+    bars:{type:'integer'},measures:{type:'integer'},part:{type:'string'},overwrite:{type:'boolean'}
    }},
    confirm(doc,args){
-    if(!args.apply)return null;
-    return 'ひらめきの内容を現在の楽譜へ書き込みます。';
+    const plan=planInspireSpark(doc,args);
+    if(!plan.apply||!plan.conflict.length)return null;
+    return `${plan.name}の${plan.from+1}〜${plan.end+1}小節目の音符をひらめきで置き換えます。`;
    },
    run(doc,args){
-    if(!Spark)fail('ひらめき機能が読み込まれていません');
-    const seed=Number.isInteger(args.seed)?args.seed:((Math.random()*0xffffffff)>>>0);
-    const spark=Spark.rollSpark(seed);
-    if(args.mood&&Spark.MOODS.includes(args.mood))spark.mood=args.mood;
+    const plan=planInspireSpark(doc,args);
+    const {Spark,spark}=plan;
     const lines=[
      `ムード: ${spark.mood}`,
      `調: ${spark.key} / ${spark.mode}`,
@@ -707,10 +759,12 @@
      `進行: ${spark.progression.timeline.map(t=>t.symbol).join(' - ')}`,
      `ヒント: ${spark.scene} / ${spark.constraints.join(' · ')}`
     ];
-    if(!args.apply)return {summary:lines.join('\n'),spark};
-    const out=Spark.applySparkDocument(doc,spark,{from:args.from||1,part:args.part||1});
+    if(!plan.apply)return {summary:lines.join('\n'),spark};
+    let current=ensureMeasureCount(doc,plan.end+1);
+    const out=Spark.applySparkDocument(current,spark,{from:plan.from+1,part:plan.index+1});
+    current=ensureMeasureCount(out.document,Math.max(plan.end+1,...partsOf(out.document).map(part=>part.measures.length)));
     Spark.pushHistory(spark);
-    return {document:out.document,focusPart:out.focusPart,summary:`${lines[0]}\n楽譜に反映しました。`,spark};
+    return {document:current,focusPart:out.focusPart??plan.index,summary:`${lines[0]}\n${plan.name}の${plan.from+1}〜${plan.end+1}小節にひらめきを書きました。`,spark};
    }
   },
   applyPopProgression:{

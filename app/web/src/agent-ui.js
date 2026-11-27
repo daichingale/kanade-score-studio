@@ -284,7 +284,8 @@
    `forceWrite=${!!forceWrite}`,
    `format=${payload.format?'yes':'no'}`,
    `toolCalls=${(finished.toolCalls||[]).map(call=>call.name).join(',')||'(none)'}`,
-   `content=${(finished.content||'').slice(0,180)}`
+   `content=${(finished.content||'').slice(0,180)}`,
+   `raw=${String(finished.rawContent||'').slice(0,240)}`
   ].join('\n');
   if(debugOn)render();
   return finished;
@@ -314,7 +315,13 @@
    const result=await Agent.runTurn({
     messages,signal:abort.signal,confirm:confirmAction,
     execute:(call,options)=>root.kanadeAgent.call(call.name,call.arguments,options),
-    onText:value=>{if(id!==turn)return;draft=value;render();},
+    onText:value=>{
+     if(id!==turn)return;
+     const cleaned=Agent.publicAssistantText(value,Agent.parseToolCallsFromContent(value));
+     draft=cleaned;
+     if(debugOn&&value&&value!==cleaned)lastDebug=`rawDraft=${value.slice(0,240)}\n${lastDebug||''}`;
+     render();
+    },
     onStep:step=>{
      if(id!==turn)return;
      const label=root.KanadeAgentTools?.stepLabel(step.name)||step.name;
@@ -323,7 +330,8 @@
       const short=step.name==='getScoreSummary'?'楽譜の概要を確認しました。':
        step.name==='writePhrase'&&/再送/.test(step.text||'')?step.text:
        (step.text||'完了');
-      liveSteps[liveSteps.length-1]=short.length>160?`${label}しました。`:short;
+      const visible=Agent.publicAssistantText(short,[])||`${label}しました。`;
+      liveSteps[liveSteps.length-1]=visible.length>160?`${label}しました。`:visible;
       if(step.proposal?.options?.length)pendingEnsembleChoices=step.proposal;
      }
      draft='';render();
@@ -332,20 +340,28 @@
    });
    if(id!==turn)return;
    if(result.error){
-    setStatus(/not found|model/i.test(result.error)?Agent.connectionMessage('missing'):result.error);
+    const friendly=/not found|model/i.test(result.error)?Agent.connectionMessage('missing'):
+     Agent.looksLikeToolPayload(result.error)?'ツールの実行に失敗しました。別の言い方で試してください。':result.error;
+    setStatus(friendly);
    }
-   const content=[...liveSteps,result.content].filter(Boolean).join('\n');
+   const reply=Agent.publicAssistantText(result.content||'',[]);
+   const content=[...liveSteps,reply].filter(Boolean).join('\n')||
+    (result.writes>0?'楽譜を更新しました。':'');
    if(content.trim()){
     messages=Agent.trimHistory([...messages,{role:'assistant',content}]);
     if(result.writes>0)messages.at(-1).undoCount=result.writes;
     save();
+   }else if(result.error&&!Agent.looksLikeToolPayload(result.error)){
+    messages=Agent.trimHistory([...messages,{role:'assistant',content:String(result.error)}]);
+    save();
    }
+   if(debugOn&&result.rawContent)lastDebug=`rawContent=${String(result.rawContent).slice(0,300)}\n${lastDebug||''}`;
    draft='';liveSteps=[];render();
    if(!result.error)setStatus(connectedStatus());
   }catch(error){
    if(id!==turn)return;
    if(error.name==='AbortError'){
-    const content=[...liveSteps,draft].filter(Boolean).join('\n');
+    const content=[...liveSteps,Agent.publicAssistantText(draft,[])].filter(Boolean).join('\n');
     if(content.trim()){messages=Agent.trimHistory([...messages,{role:'assistant',content}]);save();}
     draft='';liveSteps=[];pendingConfirm=null;render();setStatus('応答を停止しました。');
     return;
