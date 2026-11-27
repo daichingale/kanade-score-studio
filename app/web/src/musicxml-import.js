@@ -222,6 +222,7 @@
     const kits=root.KanadePercussion;
     if(staves>2)warn('3段以上の譜表は編集できる独立した譜表に分けました');
     if(bars.length!==count)warn('小節数の少ないパートは末尾に空小節を補いました');
+    let pendingGrace=[];
     for(let mi=0;mi<count;mi++){
       const bar=bars[mi],voices=Array.from({length:staves},()=>new Map());
       let cursor=0;
@@ -244,7 +245,7 @@
               if(signature){
                 const next=number(signature,'fifths');
                 if(mi===0&&cursor===0)key=next;
-                else if(next!==key)warn('途中の調号変更は先頭の調号で表示します。各音の音高は保持しました');
+                else if(next!==key){key=next;tracks[0].measures[mi].key=next;}
               }
               const transpose=one(item,'transpose');
               if(transpose){
@@ -262,7 +263,11 @@
                   staffMeta[index].clef=match;
                   if(!keepGrand)tracks[index].clef=match;
                   else if(index===0)tracks[0].clef=match;
-                }else if(staffMeta[index].clef!==match)warn('途中の音部記号変更は先頭の音部記号で表示します');
+                }else if(staffMeta[index].clef!==match){
+                  staffMeta[index].clef=match;
+                  const target=keepGrand?tracks[0].measures[mi]:tracks[index].measures[mi];
+                  if(target)target[keepGrand&&index===1?'clef2':'clef']=match;
+                }
               }
               for(const detail of children(item,'staff-details')){
                 const index=Number(attr(detail,'number')||1)-1,lines=number(detail,'staff-lines');
@@ -282,7 +287,13 @@
               if(cursor<0){warn('backup/forward で負の位置になったため 0 に補正しました');cursor=0;}
               break;
             case 'note': {
-              if(one(item,'grace')){warn('装飾音符を省略しました');break;}
+              if(one(item,'grace')){
+                const location=one(item,'pitch');
+                const pitch=location?{step:value(location,'step'),octave:number(location,'octave',4),alter:number(location,'alter')}:null;
+                if(pitch?.step){pendingGrace.push(pitch);}
+                else warn('音高のない装飾音符を省略しました');
+                break;
+              }
               const staff=number(item,'staff',1)-1,id=value(item,'voice')||'1',chord=!!one(item,'chord');
               const length=number(item,'duration')/divisions;
               if(!(length>0)){warn('長さのない音符を省略しました');break;}
@@ -305,9 +316,11 @@
               }
               const modifications=one(item,'time-modification'),notations=one(item,'notations');
               const ties=[...new Set([...children(item,'tie'),...children(notations,'tied')].map(node=>attr(node,'type')))];
+              const graces=pendingGrace.splice(0).slice(0,4).map(grace=>({...grace,id:C.uid()}));
               entries.push({at:start,end,pitch,chord:[],rest:!!rest,whole:attr(rest,'measure')==='yes',
                 den:denom[value(item,'type')],dots:children(item,'dot').length,modifications,notations,ties,
-                lyric:value(one(item,'lyric'),'text').slice(0,100),stem:value(item,'stem'),head:value(item,'notehead')});
+                lyric:value(one(item,'lyric'),'text').slice(0,100),stem:value(item,'stem'),head:value(item,'notehead'),
+                ...(graces.length?{graces}:{})});
               break;
             }
             case 'direction': {
@@ -364,7 +377,10 @@
         else if(!C.sameTime(time,reference[mi])&&bar)warn('パートごとに異なる拍子は先頭パートに揃えました');
         if(volta)repeats[mi].volta=volta;
         const capacity=C.measureTicks(reference[mi]);
-        if(attr(bar,'implicit')==='yes'&&tick(cursor)<capacity)warn('弱起・短縮小節は拍子に合わせて末尾に休符を補いました');
+        if(attr(bar,'implicit')==='yes'){
+          if(mi===0)tracks[0].measures[0].pickup=true;
+          if(tick(cursor)<capacity)warn('弱起の足りない拍は休符で補います');
+        }
         if(keepGrand){
           const target=tracks[0].measures[mi];
           for(const [staffIndex,map] of voices.entries()){
@@ -373,8 +389,11 @@
             if(staffIndex===0){
               target.events=built[0]||[];
               if(built[1]?.length)target.voice2=built[1];
-            }else if(built[0]?.length)target.staff2=built[0];
-            else if(built[1]?.length){target.staff2=built[1];warn('下段の第2声部は第1声部として読みました');}
+            }else{
+              if(built[0]?.length)target.staff2=built[0];
+              if(built[1]?.length)target.staff2Voice=built[1];
+              if(!built[0]?.length&&built[1]?.length){target.staff2=built[1];delete target.staff2Voice;warn('下段の第2声部だけだったため第1声部として読みました');}
+            }
           }
           if(target.directions)target.directions=target.directions.filter(mark=>{
             if(mark.tick>=0&&mark.tick<capacity)return true;
@@ -489,6 +508,7 @@
           if(['up','down'].includes(note.stem))event.stemDirection=note.stem;
         });
         if(note.lyric)built[0].lyric=note.lyric;
+        if(note.graces?.length)built[0].graces=note.graces.slice(0,4).map(grace=>C.normalPitch(grace));
         if(note.head==='x'&&part.clef==='percussion')part.notehead='cross';
         const articulations=[];
         for(const item of children(note.notations)){

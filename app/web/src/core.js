@@ -106,7 +106,7 @@
       const old=score.measures[mi]||{id:uid(),events:[]};
       if(mi<start||mi>=limit)return old;
       const time=sequence[(mi-start)%sequence.length],cap=measureTicks(time);
-      if(usedTicks(old)>cap||usedTicks({events:old.voice2||[]})>cap||usedTicks({events:old.staff2||[]})>cap)
+      if(usedTicks(old)>cap||usedTicks({events:old.voice2||[]})>cap||usedTicks({events:old.staff2||[]})>cap||usedTicks({events:old.staff2Voice||[]})>cap)
         throw Error(`${mi+1}小節目の音符・休符が ${time.num}/${time.den} に収まりません`);
       return {...old,time};
     });
@@ -174,14 +174,29 @@
     const entry=list[Math.max(0,Math.min(list.length,staff)-1)];
     return entry?.staffLines||score.staffLines||5;
   }
-  function measureStaffEvents(bar,staff=1){
-    if(staff===2)return bar?.staff2||[];
-    return bar?.events||[];
+  function measureStaffEvents(bar,staff=1,voice=1){
+    if(staff===2)return voice===2?bar?.staff2Voice||[]:bar?.staff2||[];
+    return voice===2?bar?.voice2||[]:bar?.events||[];
   }
   function staffScore(score,staff=1){
     if(staff===1||!isGrandStaff(score))return score;
-    const measures=score.measures.map(({staff2,...bar})=>({...bar,events:staff2||[]}));
+    const measures=score.measures.map(({staff2,staff2Voice,voice2,...bar})=>({
+      ...bar,events:staff2||[],...(staff2Voice?.length?{voice2:staff2Voice}:{})
+    }));
     return {...score,clef:staffClef(score,2),staffLines:staffLinesOf(score,2),measures};
+  }
+  function mergeVoice(part,voice,edited){
+    if(voice!==2)return edited;
+    const measures=part.measures.map((bar,mi)=>{
+      const events=edited.measures[mi]?.events||[];
+      const next={...bar};
+      if(events.length)next.voice2=events;else delete next.voice2;
+      return next;
+    });
+    for(const bar of edited.measures.slice(measures.length)){
+      measures.push({id:bar.id||uid(),events:[],...(bar.time?{time:bar.time}:{}),...(bar.events?.length?{voice2:bar.events}:{})});
+    }
+    return {...part,measures};
   }
   function mergeStaff(part,staff,edited){
     if(staff===1||!isGrandStaff(part)){
@@ -189,8 +204,10 @@
       const measures=edited.measures.map((bar,mi)=>{
         const previous=part.measures[mi];
         if(!previous)return bar;
-        if(previous.staff2?.length)return {...bar,staff2:previous.staff2};
-        const {staff2,...rest}=bar;return rest;
+        const next={...bar};
+        if(previous.staff2?.length)next.staff2=previous.staff2;else delete next.staff2;
+        if(previous.staff2Voice?.length)next.staff2Voice=previous.staff2Voice;else delete next.staff2Voice;
+        return next;
       });
       return {...edited,staves:part.staves||GRAND_STAVES.slice(),measures};
     }
@@ -198,15 +215,19 @@
       const next=edited.measures[mi];
       if(!next)return bar;
       const events=next.events||[];
-      if(events.length)return {...bar,id:next.id,time:next.time,staff2:events,
-        ...(next.directions?{directions:next.directions}:bar.directions?{directions:bar.directions}:{}),
-        ...(next.repeatStart?{repeatStart:true}:{}),...(next.repeatEnd?{repeatEnd:true}:{}),
-        ...(next.volta!==undefined?{volta:next.volta}:{})};
-      const {staff2,...rest}=bar;
-      return {...rest,id:next.id,...(next.time?{time:next.time}:{})};
+      const voice=next.voice2;
+      const updated={...bar,id:next.id,...(next.time?{time:next.time}:{})};
+      if(events.length)updated.staff2=events;else delete updated.staff2;
+      if(voice?.length)updated.staff2Voice=voice;else delete updated.staff2Voice;
+      if(next.directions)updated.directions=next.directions;
+      else if(!bar.directions)delete updated.directions;
+      if(next.repeatStart)updated.repeatStart=true;
+      if(next.repeatEnd)updated.repeatEnd=true;
+      if(next.volta!==undefined)updated.volta=next.volta;
+      return updated;
     });
     for(const bar of edited.measures.slice(measures.length)){
-      measures.push({id:bar.id||uid(),events:[],...(bar.time?{time:bar.time}:{}),...(bar.events?.length?{staff2:bar.events}:{})});
+      measures.push({id:bar.id||uid(),events:[],...(bar.time?{time:bar.time}:{}),...(bar.events?.length?{staff2:bar.events}:{}),...(bar.voice2?.length?{staff2Voice:bar.voice2}:{})});
     }
     return {...part,measures,...(edited.meterTail?{meterTail:edited.meterTail}:{}),
       title:edited.title,composer:edited.composer,tempo:edited.tempo,time:edited.time,key:edited.key};
@@ -313,6 +334,12 @@
         Number.isInteger(group.start)&&Number.isInteger(group.end)&&group.start>=0&&group.end>=group.start);
       if(groups.length!==next.staffGroups.length)next={...next,staffGroups:groups};
     }
+    if(Array.isArray(next.partUnions)){
+      const unions=next.partUnions.filter(union=>union&&typeof union==='object'&&typeof union.id==='string'&&union.id&&
+        Number.isInteger(union.start)&&Number.isInteger(union.end)&&union.end===union.start+1&&union.start>=0);
+      if(unions.length!==next.partUnions.length)next={...next,partUnions:unions};
+      if(!next.partUnions?.length){const {partUnions,...rest}=next;next=rest;}
+    }
     return next;
   }
   function createScore() {
@@ -333,7 +360,7 @@
     return {...rest,instrumentKey};
   }
   function scoreParts(documentScore) {
-    const {ensembleParts,bassPart,publication,clipBank,sceneLinks,staffGroups,...first}=documentScore;
+    const {ensembleParts,bassPart,publication,clipBank,sceneLinks,staffGroups,partUnions,...first}=documentScore;
     return [first,...(ensembleParts||[])];
   }
   function replaceScorePart(documentScore,index,next,{duplicateFrom=null}={}) {
@@ -364,7 +391,8 @@
     const [first,...ensembleParts]=updated;
     return {...first,ensembleParts,...(documentScore.publication?{publication:documentScore.publication}:{}),
       ...(documentScore.clipBank?{clipBank:documentScore.clipBank}:{}),...(documentScore.sceneLinks?{sceneLinks:documentScore.sceneLinks}:{}),
-      ...(documentScore.staffGroups?{staffGroups:documentScore.staffGroups}:{})};
+      ...(documentScore.staffGroups?{staffGroups:documentScore.staffGroups}:{}),
+      ...(documentScore.partUnions?{partUnions:documentScore.partUnions}:{})};
   }
   function makeNote(pitch, den = 4, dots = 0) {
     return { id: uid(), type:'note', den, dots, pitches:[normalPitch(pitch)] };
@@ -440,6 +468,13 @@
         group.start<0||group.end<group.start||group.end>=parts.length))
         errors.push('パート括弧の設定が不正です');
     }
+    if(score.partUnions!==undefined){
+      const unions=score.partUnions,parts=scoreParts(score);
+      if(nested||!Array.isArray(unions)||unions.length>16||unions.some(union=>!union||typeof union.id!=='string'||!union.id||
+        !Number.isInteger(union.start)||!Number.isInteger(union.end)||union.end!==union.start+1||union.start<0||union.end>=parts.length)||
+        unions.some((union,index)=>unions.some((other,otherIndex)=>otherIndex!==index&&other.start<=union.end&&union.start<=other.end)))
+        errors.push('a2の合記設定が不正です');
+    }
     if(score.sound!==undefined&&(typeof score.sound!=='string'||score.sound.length>120))errors.push('再生音源が不正です');
     if(score.staffLines!==undefined&&(!Number.isInteger(score.staffLines)||score.staffLines<1||score.staffLines>5))errors.push('譜線数が不正です');
     if(score.transposition!==undefined&&!Object.hasOwn(TRANSPOSITIONS,score.transposition))errors.push('移調設定が不正です');
@@ -464,6 +499,12 @@
       try{capacity=barTicks(score,i);}catch(e){errors.push(`${i+1}小節目の拍子が不正です`);}
       if((m.repeatStart!==undefined&&m.repeatStart!==true)||(m.repeatEnd!==undefined&&m.repeatEnd!==true)||
         (m.volta!==undefined&&m.volta!==1&&m.volta!==2))errors.push(`${i+1}小節目のリピートが不正です`);
+      if(m.pickup!==undefined&&(m.pickup!==true||i!==0))errors.push(`${i+1}小節目の弱起が不正です`);
+      if(m.breakBefore!==undefined&&!['system','page'].includes(m.breakBefore))errors.push(`${i+1}小節目の改行が不正です`);
+      if(m.key!==undefined&&(!Number.isInteger(m.key)||m.key<-7||m.key>7))errors.push(`${i+1}小節目の調号が不正です`);
+      if(m.clef!==undefined&&!Object.hasOwn(CLEFS,m.clef))errors.push(`${i+1}小節目の音部記号が不正です`);
+      if(m.clef2!==undefined&&!Object.hasOwn(CLEFS,m.clef2))errors.push(`${i+1}小節目の下段の音部記号が不正です`);
+      if(m.tempo!==undefined&&(!Number.isInteger(m.tempo)||m.tempo<20||m.tempo>300))errors.push(`${i+1}小節目のテンポが不正です`);
       if(m.directions!==undefined){
         const keys=new Set();
         const valid=Array.isArray(m.directions)&&m.directions.length<=120&&m.directions.every(mark=>{
@@ -492,9 +533,13 @@
         if(!Array.isArray(m.staff2)||m.staff2.length>200){errors.push(`${i+1}小節目の下段が不正です`);continue;}
         if(!isGrandStaff(score)&&m.staff2.length)errors.push(`${i+1}小節目の下段は大譜表でのみ使えます`);
       }
+      if(m.staff2Voice!==undefined&&(!Array.isArray(m.staff2Voice)||m.staff2Voice.length>200||!isGrandStaff(score)&&m.staff2Voice.length)){
+        errors.push(`${i+1}小節目の下段の第2声部が不正です`);continue;
+      }
       const layers=[m.events];
       if(m.voice2)layers.push(m.voice2);
       if(m.staff2)layers.push(m.staff2);
+      if(m.staff2Voice)layers.push(m.staff2Voice);
       for(const events of layers){
         let total=0,group=null,slot=0;
         for (const e of events) {
@@ -519,6 +564,12 @@
             if(e.stemDirection!==undefined&&!['up','down'].includes(e.stemDirection))errors.push(`${i+1}小節目の符幹の向きが不正です`);
             if(e.beamBreak!==undefined&&typeof e.beamBreak!=='boolean')errors.push(`${i+1}小節目の連桁設定が不正です`);
             if (e.lyric !== undefined && (typeof e.lyric !== 'string' || e.lyric.length > 100)) errors.push(`${i+1}小節目の歌詞が不正です`);
+            if(e.graces!==undefined&&(!Array.isArray(e.graces)||e.graces.length<1||e.graces.length>4))errors.push(`${i+1}小節目の装飾音が不正です`);
+            else if(e.graces)for(const grace of e.graces){
+              try{normalPitch(grace);}catch(err){errors.push(`${i+1}小節目: ${err.message}`);}
+              if(typeof grace.id!=='string'||!grace.id||ids.has(grace.id))errors.push(`${i+1}小節目の装飾音IDが重複しています`);
+              ids.add(grace.id);
+            }
             const semis=[];
             for (const p of e.pitches) {
               try {normalPitch(p);} catch(err) {errors.push(`${i+1}小節目: ${err.message}`);}
@@ -528,6 +579,8 @@
             if (semis.some((x,j)=>j>0 && x<semis[j-1])) errors.push(`${i+1}小節目の和音が昇順ではありません`);
             if (new Set(semis).size!==semis.length) errors.push(`${i+1}小節目の和音に重複した音があります`);
           }
+          if(e.type==='rest'&&e.space!==undefined&&e.space!==true)errors.push(`${i+1}小節目の休符が不正です`);
+          if(e.space&&e.type!=='rest')errors.push(`${i+1}小節目の休符が不正です`);
         }
         if(group)errors.push(`${i+1}小節目の連符が途中で切れています`);
         if (total>capacity) errors.push(`${i+1}小節目が拍子を超えています`);
@@ -550,12 +603,14 @@
   function cloneMeasure(bar){
     const fresh=event=>{
       const result=copy(event);result.id=uid();result.pitches.forEach(pitch=>{pitch.id=uid();});
+      if(result.graces)result.graces.forEach(grace=>{grace.id=uid();});
       if(result.noteBackup){result.noteBackup.id=result.id;result.noteBackup.pitches.forEach(pitch=>{pitch.id=uid();});}
       return result;
     };
     return {...bar,id:uid(),events:bar.events.map(fresh),
       ...(bar.voice2?{voice2:bar.voice2.map(fresh)}:{}),
-      ...(bar.staff2?{staff2:bar.staff2.map(fresh)}:{})};
+      ...(bar.staff2?{staff2:bar.staff2.map(fresh)}:{}),
+      ...(bar.staff2Voice?{staff2Voice:bar.staff2Voice.map(fresh)}:{})};
   }
   function voiceScore(score,voice){
     const measures=score.measures.map(({voice2,...bar})=>({...bar,events:voice===2?voice2||[]:bar.events}));
@@ -578,6 +633,279 @@
     if(staffGroups.length)next.staffGroups=staffGroups;else delete next.staffGroups;
     const errors=validateScore(next);if(errors.length)throw Error(errors[0]);
     return next;
+  }
+  function shareParts(documentScore,start){
+    const parts=scoreParts(documentScore);
+    if(!Number.isInteger(start)||start<0||start+1>=parts.length)throw Error('隣り合う2つのパートを選んでください');
+    const partUnions=[...(documentScore.partUnions||[]).filter(union=>union.end<start||union.start>start+1),
+      {id:uid(),start,end:start+1}];
+    const next={...documentScore,partUnions};
+    const errors=validateScore(next);if(errors.length)throw Error(errors[0]);
+    return next;
+  }
+  function unshareParts(documentScore,start){
+    const partUnions=(documentScore.partUnions||[]).filter(union=>union.start!==start&&union.end!==start);
+    const next={...documentScore};
+    if(partUnions.length)next.partUnions=partUnions;else delete next.partUnions;
+    const errors=validateScore(next);if(errors.length)throw Error(errors[0]);
+    return next;
+  }
+  function movePartLayout(list,count,from,to,pairOnly=false){
+    if(!list?.length||from===to)return list;
+    const indexes=[...Array(count).keys()];
+    const [moved]=indexes.splice(from,1);
+    indexes.splice(to,0,moved);
+    return list.flatMap(item=>{
+      const members=[];
+      for(let index=item.start;index<=item.end;index++)members.push(indexes.indexOf(index));
+      members.sort((a,b)=>a-b);
+      if(members.some((value,index)=>index&&value!==members[index-1]+1))return [];
+      if(pairOnly&&members.length!==2)return [];
+      if(members.length<2)return [];
+      return [{...item,start:members[0],end:members.at(-1)}];
+    });
+  }
+  function dropPartLayout(list,removed,pairOnly=false){
+    if(!list?.length)return [];
+    return list.flatMap(item=>{
+      if(removed<item.start)return [{...item,start:item.start-1,end:item.end-1}];
+      if(removed>item.end)return [item];
+      const end=item.end-1;
+      if(end<item.start||pairOnly&&end!==item.start+1)return [];
+      return [{...item,end}];
+    });
+  }
+  const FIFTHS_OF={bb:2,bbHigh:2,bbBass:2,bbContra:2,eb:3,ebHigh:3,ebBass:3,ebContra:3,a:3,f:1,g:-1};
+  function transposePitch(pitch,semitones,preferFlat=semitones<0){
+    if(!semitones)return {...pitch};
+    if(!Number.isInteger(semitones)||Math.abs(semitones)>36)throw Error('移調の幅が大きすぎます');
+    const midi=pitchMidi(pitch)+semitones,pc=((midi%12)+12)%12;
+    const sharp=['C','C','D','D','E','F','F','G','G','A','A','B'];
+    const flat=['C','D','D','E','E','F','G','G','A','A','B','B'];
+    const step=(preferFlat?flat:sharp)[pc],octave=Math.floor(midi/12)-1,alter=pc-NOTES[step];
+    if(octave<0||octave>8||Math.abs(alter)>2)throw Error('移調すると音域を外れます');
+    return {id:pitch.id,step,octave,alter};
+  }
+  function mapSoundingEvent(event,offset,preferFlat){
+    if(event.type!=='note')return event;
+    const pitches=normalizeChord(event.pitches.map(pitch=>transposePitch(pitch,offset,preferFlat)));
+    const graces=event.graces?.map(pitch=>transposePitch(pitch,offset,preferFlat));
+    return {...event,pitches,...(graces?{graces}:{})};
+  }
+  function soundingScore(part){
+    const offset=soundingOffset(part);
+    if(!offset||part.clef==='percussion')return part;
+    const key=Math.max(-7,Math.min(7,(part.key||0)-(FIFTHS_OF[part.transposition]||0)));
+    const preferFlat=key<0;
+    const mapBar=bar=>{
+      const next={...bar,events:(bar.events||[]).map(event=>mapSoundingEvent(event,offset,preferFlat))};
+      if(bar.voice2)next.voice2=bar.voice2.map(event=>mapSoundingEvent(event,offset,preferFlat));
+      if(bar.staff2)next.staff2=bar.staff2.map(event=>mapSoundingEvent(event,offset,preferFlat));
+      if(bar.staff2Voice)next.staff2Voice=bar.staff2Voice.map(event=>mapSoundingEvent(event,offset,preferFlat));
+      if(Number.isInteger(bar.key))next.key=Math.max(-7,Math.min(7,bar.key-(FIFTHS_OF[part.transposition]||0)));
+      return next;
+    };
+    return {...part,key,measures:part.measures.map(mapBar),concertView:true};
+  }
+  function keyAt(score,mi){
+    for(let index=Math.min(mi,score.measures.length-1);index>=0;index--){
+      if(Number.isInteger(score.measures[index]?.key))return score.measures[index].key;
+    }
+    return score.key||0;
+  }
+  function setKeyChange(score,start,fifths){
+    if(!Number.isInteger(start)||!score.measures[start]||!Number.isInteger(fifths)||fifths<-7||fifths>7)
+      throw Error('調号の位置を確認してください');
+    if(start===0){
+      const measures=score.measures.map((bar,index)=>index?bar:(({key,...rest})=>rest)(bar));
+      return withSettings({...score,measures}, {key:fifths});
+    }
+    const measures=score.measures.map((bar,index)=>index===start?{...bar,key:fifths}:bar);
+    const next={...score,measures};
+    const errors=validateScore(next);if(errors.length)throw Error(errors[0]);
+    return next;
+  }
+  function clefAt(score,mi,staff=1){
+    const field=staff===2?'clef2':'clef';
+    for(let index=Math.min(mi,score.measures.length-1);index>=0;index--){
+      const value=score.measures[index]?.[field];
+      if(value&&Object.hasOwn(CLEFS,value))return value;
+    }
+    return staffClef(score,staff);
+  }
+  function setClefChange(score,start,clef,staff=1){
+    if(!Number.isInteger(start)||!score.measures[start]||!Object.hasOwn(CLEFS,clef))throw Error('音部記号の位置を確認してください');
+    if(staff===2&&!isGrandStaff(score))throw Error('下段の音部記号は大譜表で指定できます');
+    if(start===0&&staff===1)return withSettings(score,{clef});
+    if(start===0&&staff===2){
+      const staves=partStaves(score).map((entry,index)=>index?{...entry,clef}:entry);
+      const measures=score.measures.map((bar,index)=>index?bar:(({clef2,...rest})=>rest)(bar));
+      const next={...score,staves,measures};
+      const errors=validateScore(next);if(errors.length)throw Error(errors[0]);
+      return next;
+    }
+    const field=staff===2?'clef2':'clef';
+    const measures=score.measures.map((bar,index)=>index===start?{...bar,[field]:clef}:bar);
+    const next={...score,measures};
+    const errors=validateScore(next);if(errors.length)throw Error(errors[0]);
+    return next;
+  }
+  function setPickup(score,beats){
+    const den=score.time?.den||4;
+    if(!Number.isInteger(beats)||beats<1||beats>=score.time.num)throw Error('弱起の拍数を確認してください');
+    const time={num:beats,den};
+    const cap=measureTicks(time),bar=score.measures[0];
+    if(usedTicks(bar)>cap||usedTicks({events:bar.voice2||[]})>cap||usedTicks({events:bar.staff2||[]})>cap||usedTicks({events:bar.staff2Voice||[]})>cap)
+      throw Error('弱起に収まるよう、先に音符を短くしてください');
+    const measures=score.measures.slice();
+    measures[0]={...bar,time,pickup:true};
+    const next={...score,measures};
+    const errors=validateScore(next);if(errors.length)throw Error(errors[0]);
+    return next;
+  }
+  function clearPickup(score){
+    const bar=score.measures[0];
+    if(!bar?.pickup)return score;
+    const {pickup,time,...rest}=bar;
+    const measures=[{...rest},...score.measures.slice(1)];
+    const next={...score,measures};
+    const errors=validateScore(next);if(errors.length)throw Error(errors[0]);
+    return next;
+  }
+  function setBreak(score,mi,kind){
+    if(!score.measures[mi]||kind!==null&&!['system','page'].includes(kind))throw Error('改行の位置を確認してください');
+    const measures=score.measures.map((bar,index)=>{
+      if(index!==mi)return bar;
+      if(!kind){const {breakBefore,...rest}=bar;return rest;}
+      return {...bar,breakBefore:kind};
+    });
+    const next={...score,measures};
+    const errors=validateScore(next);if(errors.length)throw Error(errors[0]);
+    return next;
+  }
+  function setTempoAt(score,mi,tempo){
+    if(!score.measures[mi]||!Number.isInteger(tempo)||tempo<20||tempo>300)throw Error('テンポを確認してください');
+    const measures=score.measures.map((bar,index)=>index===mi?{...bar,tempo}:bar);
+    const next={...score,measures};
+    const errors=validateScore(next);if(errors.length)throw Error(errors[0]);
+    return next;
+  }
+  function tempoAt(score,mi){
+    for(let index=Math.min(mi,score.measures.length-1);index>=0;index--){
+      if(Number.isInteger(score.measures[index]?.tempo))return score.measures[index].tempo;
+    }
+    return score.tempo;
+  }
+  function divisiCues(score,staff=1){
+    const key=staff===2?'staff2Voice':'voice2';
+    const cues=[];let open=false;
+    for(let mi=0;mi<score.measures.length;mi++){
+      const active=(score.measures[mi][key]||[]).some(event=>event.type==='note');
+      if(active&&!open){cues.push({mi,tick:0,text:'div.'});open=true;}
+      else if(!active&&open){cues.push({mi,tick:0,text:'unis.'});open=false;}
+    }
+    return cues;
+  }
+  function timedLayer(events,cap){
+    const list=[...events,...fillRests(Math.max(0,cap-usedTicks({events})))];
+    let tick=0;
+    return list.map(event=>{
+      const start=tick;tick+=eventTicks(event);
+      return {event,start,end:tick};
+    });
+  }
+  function planSharedStaff(upperEvents,lowerEvents,cap){
+    const upper=upperEvents||[],lower=lowerEvents||[];
+    if([...upper,...lower].some(event=>event.tuplet)){
+      const upperNotes=upper.some(event=>event.type==='note'),lowerNotes=lower.some(event=>event.type==='note');
+      if(upperNotes&&lowerNotes)return {events:upper.map(event=>event.type==='note'?{...copy(event),stemDirection:'up'}:copy(event)),
+        voice2:lower.map(event=>event.type==='note'?{...copy(event),stemDirection:'down'}:copy(event)),labels:[]};
+      if(lowerNotes)return {events:lower.map(copy),labels:[{tick:0,text:'2.'}]};
+      return {events:upper.map(copy),labels:upperNotes?[{tick:0,text:'1.'}]:[]};
+    }
+    const a=timedLayer(upper,cap),b=timedLayer(lower,cap);
+    const cuts=[...new Set([0,...a.map(span=>span.end),...b.map(span=>span.end)])].sort((left,right)=>left-right);
+    const atoms=[];
+    for(let index=0;index<cuts.length-1;index++){
+      const start=cuts[index],end=cuts[index+1];
+      const u=a.find(span=>span.start<=start&&span.end>=end),l=b.find(span=>span.start<=start&&span.end>=end);
+      const uNote=u?.event.type==='note',lNote=l?.event.type==='note';
+      let relation='rest';
+      if(uNote&&lNote){
+        const identical=u.start===start&&l.start===start&&u.end===end&&l.end===end&&samePitches(u.event,l.event)&&
+          u.event.den===l.event.den&&u.event.dots===l.event.dots;
+        relation=identical?'unison':'split';
+      }else if(uNote)relation='solo1';
+      else if(lNote)relation='solo2';
+      atoms.push({start,end,relation,upper:u,lower:l});
+    }
+    const sounding=new Set(atoms.filter(atom=>atom.relation!=='rest').map(atom=>atom.relation));
+    if(!sounding.size)return {events:[],labels:[]};
+    if(sounding.size===1&&sounding.has('unison'))return {events:upper.map(copy),labels:[{tick:atoms.find(atom=>atom.relation==='unison').start,text:'a2'}]};
+    if(sounding.size===1&&sounding.has('solo1'))return {events:upper.map(copy),labels:[{tick:atoms.find(atom=>atom.relation==='solo1').start,text:'1.'}]};
+    if(sounding.size===1&&sounding.has('solo2'))return {events:lower.map(copy),labels:[{tick:atoms.find(atom=>atom.relation==='solo2').start,text:'2.'}]};
+    const labels=[];let previous=null;
+    for(const atom of atoms){
+      if(atom.relation==='rest'||atom.relation===previous)continue;
+      const text={unison:'a2',solo1:'1.',solo2:'2.'}[atom.relation];
+      if(text)labels.push({tick:atom.start,text});
+      previous=atom.relation;
+    }
+    const layer=(which)=>{
+      const out=[];let index=0;
+      const shown=atom=>which==='upper'?['unison','solo1','split'].includes(atom.relation):['solo2','split'].includes(atom.relation);
+      while(index<atoms.length){
+        const atom=atoms[index];
+        if(!shown(atom)){
+          let end=atom.end;
+          while(index+1<atoms.length&&!shown(atoms[index+1])&&atoms[index+1].start===end){index++;end=atoms[index].end;}
+          out.push(...fillRests(end-atom.start).map(rest=>({...makeRest(rest.den,rest.dots),space:true})));
+          index++;continue;
+        }
+        const source=which==='upper'?atom.upper:atom.lower;
+        const stem=atom.relation==='split'?(which==='upper'?'up':'down'):null;
+        if(source.start===atom.start&&source.end===atom.end){
+          const event=copy(source.event);
+          if(stem)event.stemDirection=stem;
+          out.push(event);index++;continue;
+        }
+        for(const piece of eventFragment(copy(source.event),atom.end-atom.start,atom.start===source.start,atom.end===source.end)){
+          if(stem&&piece.type==='note')piece.stemDirection=stem;
+          out.push(piece);
+        }
+        index++;
+      }
+      return out;
+    };
+    return {events:layer('upper'),voice2:layer('lower'),labels};
+  }
+  function displayParts(parts,unions=[]){
+    const taken=new Set(),rows=[];
+    const byStart=new Map((unions||[]).filter(union=>union.end===union.start+1).map(union=>[union.start,union]));
+    for(let index=0;index<parts.length;index++){
+      if(taken.has(index))continue;
+      const union=byStart.get(index);
+      const lower=union?parts[union.end]:null;
+      if(!lower){rows.push({part:parts[index],source:index,secondary:null});continue;}
+      taken.add(union.end);
+      const capAt=mi=>barTicks(parts[index],mi);
+      const measures=parts[index].measures.map((bar,mi)=>{
+        const plan=planSharedStaff(bar.events,lower.measures[mi]?.events||[],capAt(mi));
+        const own=bar.directions||[];
+        const extra=(lower.measures[mi]?.directions||[]).filter(mark=>!own.some(item=>item.key===mark.key&&item.tick===mark.tick&&item.text===mark.text));
+        const labels=(plan.labels||[]).filter(label=>![...own,...extra].some(mark=>mark.tick===label.tick&&mark.text===label.text));
+        const directions=[...own,...extra,...labels.map(label=>({key:'custom',tick:label.tick,text:label.text}))];
+        const next={...bar,events:plan.events};
+        if(plan.voice2?.length)next.voice2=plan.voice2;else delete next.voice2;
+        if(directions.length)next.directions=directions;else delete next.directions;
+        delete next.staff2;delete next.staff2Voice;
+        return next;
+      });
+      const name=(parts[index].printName||parts[index].instrument)+' · '+(lower.printName||lower.instrument);
+      const {staves,...rest}=parts[index];
+      rows.push({part:{...rest,instrument:name,printName:name,measures,sharedStaff:true},source:index,secondary:union.end});
+    }
+    return rows;
   }
   function editMeasure(score,index) {
     const next={...score,measures:score.measures.slice()};
@@ -819,7 +1147,7 @@
         tieStop:index>0||(startsAtOnset&&!!event.tieStop),
         tieStart:index<durations.length-1||(keepEnd&&!!event.tieStart)};
       if(!startsAtOnset){
-        delete part.articulations;delete part.lyric;delete part.beamBreak;
+        delete part.articulations;delete part.lyric;delete part.beamBreak;delete part.graces;
       }
       return part;
     });
@@ -956,5 +1284,5 @@
     const sym= e.dots?'.'.repeat(e.dots):'';
     return e.type==='rest' ? `休符 1/${e.den}${sym}` : e.pitches.map(p=>p.step+({1:'♯',2:'𝄪','-1':'♭','-2':'𝄫'}[p.alter]||'')+p.octave).join(' + ')+`  1/${e.den}${sym}`;
   }
-  return {CLIP_COUNT,CLIP_MEASURES,scoreParts,replaceScorePart,cloneMeasure,voiceScore,staffScore,mergeStaff,setGrandStaff,migrateDocument,applyInstrumentStaves,groupParts,ungroupParts,partStaves,isGrandStaff,staffCount,staffClef,staffLinesOf,measureStaffEvents,prefersGrandStaff,GRAND_STAFF_KEYS,GRAND_STAVES,Symbols,changeDirections,isRangeDirection,directionEnd,directionSegments,setDirectionRange,ARTICULATIONS,CLEFS,TRANSPOSITIONS,transposition,soundingOffset,soundName,staffBounds,TPQ,WHOLE,DENOMS,TUPLETS,MAX_TUPLET_COUNT,validTupletRatio,STEPS,SHARP_ORDER,FLAT_ORDER,copy,uid,createScore,makeNote,makeRest,normalPitch,pitchMidi,diatonicNumber,normalizeChord,durationTicks,eventTicks,exactEventTicks,tupletUnit,tupletEnd,restFor,measureTicks,sameTime,timeAt,endingEdges,barTicks,measureOffsets,locateTick,setMeter,usedTicks,validateScore,insertEvent,deleteEvent,changeEvent,changeDuration,addChordPitch,flipNoteRest,toggleNoteRest,changeSemitone,withSettings,addMeasure,removeMeasure,keyAlter,fillRests,eventsWithRests,eventSpans,canPlaceAt,exactDurations,placeEventAt,placeEventsAt,placeAcrossBars,placeTuplet,tupletGroupAt,replaceTupletEntry,samePitches,nextWrittenEvent,toggleTie,tieFlags,snapInputTick,eventLabel};
+  return {CLIP_COUNT,CLIP_MEASURES,scoreParts,replaceScorePart,cloneMeasure,voiceScore,staffScore,mergeStaff,mergeVoice,setGrandStaff,migrateDocument,applyInstrumentStaves,groupParts,ungroupParts,shareParts,unshareParts,movePartLayout,dropPartLayout,planSharedStaff,displayParts,divisiCues,partStaves,isGrandStaff,staffCount,staffClef,staffLinesOf,measureStaffEvents,prefersGrandStaff,GRAND_STAFF_KEYS,GRAND_STAVES,Symbols,changeDirections,isRangeDirection,directionEnd,directionSegments,setDirectionRange,ARTICULATIONS,CLEFS,TRANSPOSITIONS,transposition,soundingOffset,soundName,staffBounds,transposePitch,soundingScore,keyAt,setKeyChange,clefAt,setClefChange,setPickup,clearPickup,setBreak,setTempoAt,tempoAt,TPQ,WHOLE,DENOMS,TUPLETS,MAX_TUPLET_COUNT,validTupletRatio,STEPS,SHARP_ORDER,FLAT_ORDER,copy,uid,createScore,makeNote,makeRest,normalPitch,pitchMidi,diatonicNumber,normalizeChord,durationTicks,eventTicks,exactEventTicks,tupletUnit,tupletEnd,restFor,measureTicks,sameTime,timeAt,endingEdges,barTicks,measureOffsets,locateTick,setMeter,usedTicks,validateScore,insertEvent,deleteEvent,changeEvent,changeDuration,addChordPitch,flipNoteRest,toggleNoteRest,changeSemitone,withSettings,addMeasure,removeMeasure,keyAlter,fillRests,eventsWithRests,eventSpans,canPlaceAt,exactDurations,placeEventAt,placeEventsAt,placeAcrossBars,placeTuplet,tupletGroupAt,replaceTupletEntry,samePitches,nextWrittenEvent,toggleTie,tieFlags,snapInputTick,eventLabel};
 });

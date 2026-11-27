@@ -91,6 +91,7 @@
     const beams=N.beamMarks(track,i);
     let tick=0;
     for(const [index,e] of notes.entries()) {
+      if(e.type==='note'&&!e.space)graceNotes(out,e,neutral,score);
       const flags=C.tieFlags(track,i,index),ties=[...(flags.stop?['stop']:[]),...(flags.start?['start']:[])];
       const duration=grid.duration(e);
       const pitchXml=e.type==='rest'?[null]:e.pitches;
@@ -125,6 +126,16 @@
       tick+=C.eventTicks(e);
     }
   }
+  function graceNotes(out,event,neutral,score){
+    for(const pitch of event.graces||[]){
+      out.push('      <note>');
+      out.push('        <grace slash="yes"/>');
+      if(neutral)out.push(`        <unpitched><display-step>${pitch.step}</display-step><display-octave>${pitch.octave}</display-octave></unpitched>`);
+      else out.push(`        <pitch><step>${pitch.step}</step>${pitch.alter?`<alter>${pitch.alter}</alter>`:''}<octave>${pitch.octave}</octave></pitch>`);
+      out.push('        <type>eighth</type>');
+      out.push('      </note>');
+    }
+  }
   function musicXML(score) {
     const errors=C.validateScore(score); if(errors.length) throw new Error(errors[0]);
     const sound=C.soundName(score),kit=P.preset(sound),neutral=score.clef==='percussion',t=C.transposition(score);
@@ -152,24 +163,32 @@
     }
     const voice2=score.measures.some(bar=>bar.voice2?.length)?C.voiceScore(score,2):null;
     const lower=grand?C.staffScore(score,2):null;
+    const lowerVoice=grand&&score.measures.some(bar=>bar.staff2Voice?.length)?C.voiceScore(lower,2):null;
     let previousDivisions=null;
     for(const [i,measure] of score.measures.entries()) {
       const time=C.timeAt(score,i),events=C.eventsWithRests(measure,time);
       const secondary=measure.voice2?.length?C.eventsWithRests(voice2.measures[i],time):[];
       const bassEvents=grand?C.eventsWithRests({events:measure.staff2||[]},time):[];
-      const grid=durationGrid(events,[...secondary,...bassEvents]);
+      const bassVoice=lowerVoice?C.eventsWithRests(lowerVoice.measures[i],time):[];
+      const grid=durationGrid(events,[...secondary,...bassEvents,...bassVoice]);
       const divisions=grid.divisions!==previousDivisions?`<divisions>${grid.divisions}</divisions>`:'';
       previousDivisions=grid.divisions;
       const meter=`<time><beats>${time.num}</beats><beat-type>${time.den}</beat-type></time>`;
-      out.push(`    <measure implicit="no" number="${i+1}">`);
+      const pickup=!!measure.pickup;
+      out.push(`    <measure implicit="${pickup?'yes':'no'}" number="${score.measures[0]?.pickup?i:i+1}">`);
+      const keyNow=neutral?0:C.keyAt(score,i),keyPrev=i?C.keyAt(score,i-1):keyNow;
+      const clefNow=index=>C.clefAt(score,i,index+1),clefPrev=index=>i?C.clefAt(score,i-1,index+1):clefNow(index);
       if(i===0){
-        const clefs=staves.map((entry,index)=>clefXML(entry.clef,grand?index+1:undefined)).join('');
+        const clefs=staves.map((entry,index)=>clefXML(clefNow(index),grand?index+1:undefined)).join('');
         const staffDetails=staves.map((entry,index)=>`<staff-details${grand?` number="${index+1}"`:''}><staff-lines>${entry.staffLines||score.staffLines||5}</staff-lines></staff-details>`).join('');
         const stavesTag=grand?`<staves>${staves.length}</staves>`:'';
-        out.push(`      <attributes>${divisions}<key><fifths>${neutral?0:score.key}</fifths></key>${meter}${stavesTag}${clefs}${staffDetails}${!neutral&&(t.chromatic||t.octave)?`<transpose><diatonic>${t.diatonic}</diatonic><chromatic>${t.chromatic}</chromatic>${t.octave?`<octave-change>${t.octave}</octave-change>`:''}</transpose>`:''}</attributes>`,`      <direction placement="above"><direction-type><metronome parentheses="no"><beat-unit>quarter</beat-unit><per-minute>${score.tempo}</per-minute></metronome></direction-type><sound tempo="${score.tempo}" /></direction>`);
+        out.push(`      <attributes>${divisions}<key><fifths>${keyNow}</fifths></key>${meter}${stavesTag}${clefs}${staffDetails}${!neutral&&(t.chromatic||t.octave)?`<transpose><diatonic>${t.diatonic}</diatonic><chromatic>${t.chromatic}</chromatic>${t.octave?`<octave-change>${t.octave}</octave-change>`:''}</transpose>`:''}</attributes>`,`      <direction placement="above"><direction-type><metronome parentheses="no"><beat-unit>quarter</beat-unit><per-minute>${C.tempoAt(score,0)}</per-minute></metronome></direction-type><sound tempo="${C.tempoAt(score,0)}" /></direction>`);
       }else{
         const timeChange=C.sameTime(time,C.timeAt(score,i-1))?'':meter;
-        if(divisions||timeChange)out.push(`      <attributes>${divisions}${timeChange}</attributes>`);
+        const keyChange=keyNow===keyPrev?'':`<key><fifths>${keyNow}</fifths></key>`;
+        const clefChange=staves.map((entry,index)=>clefNow(index)===clefPrev(index)?'':clefXML(clefNow(index),grand?index+1:undefined)).join('');
+        if(divisions||timeChange||keyChange||clefChange)out.push(`      <attributes>${divisions}${keyChange}${timeChange}${clefChange}</attributes>`);
+        if(Number.isInteger(measure.tempo)&&measure.tempo!==C.tempoAt(score,i-1))out.push(`      <direction placement="above"><direction-type><metronome parentheses="no"><beat-unit>quarter</beat-unit><per-minute>${measure.tempo}</per-minute></metronome></direction-type><sound tempo="${measure.tempo}" /></direction>`);
       }
       const ending=C.endingEdges(score,i);
       if(measure.repeatStart||ending.start)out.push(`      <barline location="left">${measure.repeatStart?'<bar-style>heavy-light</bar-style>':''}${ending.start?`<ending number="${measure.volta}" type="start"/>`:''}${measure.repeatStart?'<repeat direction="forward"/>':''}</barline>`);
@@ -178,6 +197,7 @@
       const layers=[[1,1,events,score]];
       if(secondary.length)layers.push([2,1,secondary,voice2]);
       if(bassEvents.length)layers.push([3,2,bassEvents,lower]);
+      if(bassVoice.length)layers.push([4,2,bassVoice,lowerVoice]);
       const options={kit,sound,neutral,score,multiVoice,multiStaff};
       for(const [voice,staff,notes,track] of layers){
         if(voice>1)out.push(`      <backup><duration>${BigInt(C.barTicks(score,i))*grid.divisions/BigInt(C.TPQ)}</duration></backup>`);

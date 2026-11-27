@@ -37,10 +37,24 @@
     if(event.tieStop)return 't';
     return '';
   }
+  const ARTIC={
+    accent:'acc',staccato:'stacc',tenuto:'ten',marcato:'marc',staccatissimo:'stacciss','detached-legato':'tenstacc',
+    spiccato:'spicc','breath-mark':'breath',caesura:'caesura',fermata:'fermata','short-fermata':'fermata','long-fermata':'fermata',
+    trill:'trill',turn:'turn','inverted-turn':'invturn',mordent:'mordent','inverted-mordent':'upmordent'
+  };
   function durationAttrs(event){
     const dots=event.dots?` dots="${event.dots}"`:'';
     const tie=tieValue(event);
-    return `dur="${event.den}"${dots}${tie?` tie="${tie}"`:''}`;
+    const stem=event.stemDirection?` stem.dir="${event.stemDirection}"`:'';
+    return `dur="${event.den}"${dots}${tie?` tie="${tie}"`:''}${stem}`;
+  }
+  function articXml(event){
+    return (event.articulations||[]).map(name=>{
+      const artic=ARTIC[name];
+      if(artic)return `<artic artic="${artic}"/>`;
+      const label=C.Symbols.notes[name]?.label;
+      return label?`<dir place="above">${esc(label)}</dir>`:'';
+    }).join('');
   }
   function verse(event){
     if(!event.lyric)return '';
@@ -49,17 +63,22 @@
   function pitchNote(pitch,fifths){
     return `<note pname="${String(pitch.step).toLowerCase()}" oct="${pitch.octave}"${accid(pitch.step,pitch.alter,fifths)}/>`;
   }
+  function graceXml(event,fifths){
+    return (event.graces||[]).map(pitch=>`<note grace="unacc" dur="8" stem.dir="up" pname="${String(pitch.step).toLowerCase()}" oct="${pitch.octave}"${accid(pitch.step,pitch.alter,fifths)}/>`).join('');
+  }
   function eventXml(event,fifths,mi,index,tick,entries,staff){
+    if(event.space)return `<space ${durationAttrs(event)}/>`;
     const id=xmlId(event.id);
     entries.push({xmlId:id,id:String(event.id),type:event.type,index,measure:mi,tick,staff});
     if(event.type==='rest')return `<rest xml:id="${esc(id)}" ${durationAttrs(event)}/>`;
-    const lyric=verse(event);
+    const lyric=verse(event),marks=articXml(event);
+    const grace=graceXml(event,fifths);
     if((event.pitches||[]).length>1){
       const notes=[...event.pitches].sort((a,b)=>C.diatonicNumber(a)-C.diatonicNumber(b)).map(pitch=>pitchNote(pitch,fifths)).join('');
-      return `<chord xml:id="${esc(id)}" ${durationAttrs(event)}>${notes}${lyric}</chord>`;
+      return `${grace}<chord xml:id="${esc(id)}" ${durationAttrs(event)}>${notes}${marks}${lyric}</chord>`;
     }
     const pitch=event.pitches[0];
-    return `<note xml:id="${esc(id)}" ${durationAttrs(event)} pname="${String(pitch.step).toLowerCase()}" oct="${pitch.octave}"${accid(pitch.step,pitch.alter,fifths)}>${lyric}</note>`;
+    return `${grace}<note xml:id="${esc(id)}" ${durationAttrs(event)} pname="${String(pitch.step).toLowerCase()}" oct="${pitch.octave}"${accid(pitch.step,pitch.alter,fifths)}>${marks}${lyric}</note>`;
   }
   function groups(events){
     const out=[];
@@ -79,7 +98,7 @@
     }
     return out;
   }
-  function layerOf(events,fifths,mi,entries,staff){
+  function layerOf(events,fifths,mi,entries,staff,layer=1){
     let tick=0,cursor=0;
     const body=groups(events||[]).map(group=>{
       const notes=group.events.map(event=>{
@@ -90,16 +109,30 @@
       if(!group.tuplet)return notes;
       return `<tuplet num="${group.tuplet.actual}" numbase="${group.tuplet.normal}">${notes}</tuplet>`;
     }).join('');
-    return `<layer n="1">${body}</layer>`;
+    return `<layer n="${layer}">${body}</layer>`;
+  }
+  function clefChangeXml(name){
+    const clef=CLEF[name]||CLEF.treble;
+    return clef.line?`<clef shape="${clef.shape}" line="${clef.line}"/>`:`<clef shape="${clef.shape}"/>`;
+  }
+  function staffMusic(part,mi,fifths,entries,staffNumber,staffIndex){
+    const bar=part.measures[mi]||{events:[]};
+    const events=staffIndex===2?bar.staff2||[]:bar.events||[];
+    const voice=staffIndex===2?bar.staff2Voice:bar.voice2;
+    const clefName=C.clefAt(part,mi,staffIndex);
+    const previous=mi?C.clefAt(part,mi-1,staffIndex):clefName;
+    const change=mi&&clefName!==previous?clefChangeXml(clefName):'';
+    const second=voice?.length?layerOf(voice,fifths,mi,entries,staffNumber,2):'';
+    return `<staff n="${staffNumber}">${change}${layerOf(events,fifths,mi,entries,staffNumber,1)}${second}</staff>`;
   }
   function staffDef(part,number,staffIndex=1,label){
-    const clefName=C.staffClef(part,staffIndex);
+    const clefName=C.clefAt(part,0,staffIndex);
     const clef=CLEF[clefName]||CLEF.treble;
-    const time=part.time||{num:4,den:4};
+    const time=C.timeAt(part,0);
     const lines=C.staffLinesOf(part,staffIndex);
     const clefAttr=clef.line?`clef.shape="${clef.shape}" clef.line="${clef.line}"`:`clef.shape="${clef.shape}"`;
     const name=label===undefined?(staffIndex===1?(part.instrument||''):''):label;
-    return `<staffDef n="${number}" lines="${lines}" ${clefAttr} key.sig="${keySig(part.key||0)}" meter.count="${time.num}" meter.unit="${time.den}"${name?` label="${esc(name)}"`:''}/>`;
+    return `<staffDef n="${number}" lines="${lines}" ${clefAttr} key.sig="${keySig(C.keyAt(part,0))}" meter.count="${time.num}" meter.unit="${time.den}"${name?` label="${esc(name)}"`:''}/>`;
   }
   function expandParts(parts){
     const slots=[];
@@ -149,39 +182,107 @@
     }
     return chunks.join('');
   }
-  function meiForParts(parts,staffGroups){
+  function noteAt(entries,mi,tick,staff){
+    return entries.find(entry=>entry.measure===mi&&entry.tick===tick&&entry.type==='note'&&(staff===undefined||entry.staff===staff));
+  }
+  function directionXml(part,mi,entries,staffNumber){
+    const out=[];
+    const placeOf=preset=>preset.placement==='below'?'below':'above';
+    for(const mark of part.measures[mi]?.directions||[]){
+      const preset=C.Symbols.byKey[mark.key];
+      if(!preset||C.isRangeDirection(mark.key))continue;
+      const place=placeOf(preset);
+      if(preset.style==='dynamic'){out.push(`<dir place="${place}" staff="${staffNumber}"><dynam>${esc(preset.label)}</dynam></dir>`);continue;}
+      if(mark.key==='segno'||mark.key==='coda'){out.push(`<dir place="above" staff="${staffNumber}" type="${mark.key}">${esc(preset.label)}</dir>`);continue;}
+      const text=mark.text||preset.label;
+      const tag=preset.group==='速度'?'tempo':preset.group==='進行・リハーサル'&&/^[A-J]$/.test(text)?'reh':'dir';
+      out.push(`<${tag} place="${place}" staff="${staffNumber}">${esc(text)}</${tag}>`);
+    }
+    if(!part.sharedStaff)for(const cue of C.divisiCues(part,1).filter(cue=>cue.mi===mi)){
+      if((part.measures[mi].directions||[]).some(mark=>mark.text===cue.text))continue;
+      out.push(`<dir place="above" staff="${staffNumber}">${cue.text}</dir>`);
+    }
+    if(C.isGrandStaff(part))for(const cue of C.divisiCues(part,2).filter(cue=>cue.mi===mi)){
+      out.push(`<dir place="above" staff="${staffNumber+1}">${cue.text}</dir>`);
+    }
+    for(const segment of C.directionSegments(part,mi)){
+      const {mark,startTick,endTick,first,last,from}=segment;
+      if(!first)continue;
+      const end=C.directionEnd(part,from,mark);
+      const startNote=noteAt(entries,mi,startTick,staffNumber);
+      const endNote=end&&noteAt(entries,end.mi,end.tick,staffNumber);
+      if(!startNote||!endNote)continue;
+      if(mark.key==='slur')out.push(`<slur startid="#${startNote.xmlId}" endid="#${endNote.xmlId}" place="above"/>`);
+      else out.push(`<hairpin form="${mark.key==='crescendo'?'cres':'dim'}" startid="#${startNote.xmlId}" endid="#${endNote.xmlId}" place="below"/>`);
+    }
+    if(Number.isInteger(part.measures[mi]?.tempo))out.push(`<tempo place="above" staff="${staffNumber}" midi.bpm="${part.measures[mi].tempo}">♩ = ${part.measures[mi].tempo}</tempo>`);
+    return out.join('');
+  }
+  function remapGroups(groups,rows){
+    return (groups||[]).flatMap(group=>{
+      const members=rows.map((row,index)=>({index,row})).filter(({row})=>{
+        const end=row.secondary??row.source;
+        return end>=group.start&&row.source<=group.end;
+      });
+      if(members.length<2)return [];
+      return [{...group,start:members[0].index,end:members.at(-1).index}];
+    });
+  }
+  function meiForParts(parts,staffGroups,partUnions){
     const list=parts.filter(Boolean);
+    const unions=partUnions||parts.partUnions||[];
+    const rows=unions.length?C.displayParts(list,unions):list.map((part,source)=>({part,source,secondary:null}));
+    const shown=rows.map(row=>row.part);
     const entries=[];
-    const slots=expandParts(list);
-    const groups=staffGroups||parts.staffGroups||list[0]?.staffGroups||[];
-    const count=Math.max(...list.map(part=>part.measures.length));
+    const slots=expandParts(shown);
+    const groups=remapGroups(staffGroups||parts.staffGroups||list[0]?.staffGroups||[],rows);
+    const count=Math.max(...shown.map(part=>part.measures.length));
     const measureMap=[];
-    const measures=[];
+    const built=[];
+    const pickup=!!shown[0]?.measures[0]?.pickup;
+    const bodies=[];
     for(let mi=0;mi<count;mi++){
-      const staves=slots.map(slot=>{
-        const measure=slot.part.measures[mi];
-        const events=C.measureStaffEvents(measure,slot.staff);
-        return `<staff n="${slot.n}">${measure?layerOf(events,slot.part.key||0,mi,entries,slot.staff):'<layer n="1"/>'}</staff>`;
-      }).join('');
-      const time=C.timeAt(list[0],Math.min(mi,list[0].measures.length-1));
-      const previous=mi?C.timeAt(list[0],Math.min(mi-1,list[0].measures.length-1)):time;
-      const meter=mi&&(time.num!==previous.num||time.den!==previous.den)?` meter.count="${time.num}" meter.unit="${time.den}"`:'';
-      const bar=list[0].measures[mi]||{};
-      const edges=`${bar.repeatStart?' left="rptstart"':''}${bar.repeatEnd?' right="rptend"':''}`;
-      measures.push(`<measure n="${mi+1}"${meter}${edges}>${staves}</measure>`);
+      bodies.push(slots.map(slot=>{
+        const part=slot.part;
+        if(!part.measures[mi])return `<staff n="${slot.n}"><layer n="1"/></staff>`;
+        return staffMusic(part,mi,C.keyAt(part,mi),entries,slot.n,slot.staff);
+      }).join(''));
       measureMap.push(mi);
     }
-    const title=esc(list[0].title||'楽譜');
-    const withGroups=list.map((part,index)=>index?part:{...part,staffGroups:groups});
+    for(let mi=0;mi<count;mi++){
+      const head=shown[0];
+      const time=C.timeAt(head,Math.min(mi,head.measures.length-1));
+      const previous=mi?C.timeAt(head,Math.min(mi-1,head.measures.length-1)):time;
+      const meter=mi&&(time.num!==previous.num||time.den!==previous.den)?` meter.count="${time.num}" meter.unit="${time.den}"`:'';
+      const key=C.keyAt(head,mi),previousKey=mi?C.keyAt(head,mi-1):key;
+      const keyAttr=mi&&key!==previousKey?` key.sig="${keySig(key)}"`:'';
+      const bar=head.measures[mi]||{};
+      const edges=`${bar.repeatStart?' left="rptstart"':''}${bar.repeatEnd?' right="rptend"':''}`;
+      const dirs=slots.filter(slot=>slot.staff===1).map(slot=>slot.part.measures[mi]?directionXml(slot.part,mi,entries,slot.n):'').join('');
+      const number=pickup?mi:mi+1;
+      built.push({mi,volta:bar.volta||0,xml:`<measure n="${number}"${meter}${keyAttr}${edges}>${dirs}${bodies[mi]}</measure>`});
+    }
+    let section='';let open=0;
+    for(const item of built){
+      if(item.volta!==open){
+        if(open)section+='</ending>';
+        if(item.volta)section+=`<ending n="${item.volta}" label="${item.volta}.">`;
+        open=item.volta;
+      }
+      section+=item.xml;
+    }
+    if(open)section+='</ending>';
+    const title=esc(shown[0].title||'楽譜');
+    const withGroups=shown.map((part,index)=>index?part:{...part,staffGroups:groups});
     const mei=`<?xml version="1.0" encoding="UTF-8"?>
 <mei xmlns="http://www.music-encoding.org/ns/mei" meiversion="5.0">
   <meiHead><fileDesc><titleStmt><title>${title}</title></titleStmt></fileDesc></meiHead>
   <music><body><mdiv><score>
     <scoreDef><staffGrp>${staffGrpXml(withGroups)}</staffGrp></scoreDef>
-    <section>${measures.join('')}</section>
+    <section>${section}</section>
   </score></mdiv></body></music>
 </mei>`;
-    return {mei,entries,measureMap,slots};
+    return {mei,entries,measureMap,slots,rows};
   }
   function meiForPart(part){return meiForParts([part],part.staffGroups||[]);}
   function decorateSvg(svg,entries,measureMap){

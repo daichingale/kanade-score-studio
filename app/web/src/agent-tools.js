@@ -31,7 +31,9 @@
   voiceChords:'和音を配置',checkRanges:'音域を確認',fixRanges:'音域に収める',getInstrumentRanges:'音域表を確認',
   applyPopProgression:'ポップ進行を伴奏として入力',
   inspireSpark:'作曲のひらめきを生成（必要なら楽譜に反映）',
-  setGrandStaff:'大譜表のオン／オフ',groupParts:'隣接パートを括弧でまとめる'
+  setGrandStaff:'大譜表のオン／オフ',groupParts:'隣接パートを括弧でまとめる',
+  shareParts:'隣接2パートをa2で1段にまとめる',setKeyChange:'途中の調号',setClefChange:'途中の音部記号',
+  setPickup:'弱起',addGrace:'装飾音'
  };
 
  function fail(message){throw new Error(message);}
@@ -107,6 +109,10 @@
   if(doc.clipBank)next.clipBank=doc.clipBank;
   if(doc.sceneLinks)next.sceneLinks=doc.sceneLinks;
   if(doc.staffGroups)next.staffGroups=doc.staffGroups;
+  if(doc.partUnions){
+   const unions=doc.partUnions.filter(union=>union.end<parts.length&&union.end===union.start+1);
+   if(unions.length)next.partUnions=unions;
+  }
   if(doc.bassPart)next.bassPart=doc.bassPart;
   const errors=C.validateScore(next);
   if(errors.length)fail(errors[0]);
@@ -165,6 +171,10 @@
   if(!midis.length)return 1;
   const avg=midis.reduce((sum,value)=>sum+value,0)/midis.length;
   return avg>=60?1:2;
+ }
+ function editVoicePart(doc,index,staff,voice,fn){
+  if(voice!==2)return editStaffPart(doc,index,staff,fn);
+  return editStaffPart(doc,index,staff,view=>C.mergeVoice(view,2,fn(C.voiceScore(view,2))));
  }
  function editStaffPart(doc,index,staff,fn){
   const part=partsOf(doc)[index];
@@ -563,8 +573,8 @@
    }
   },
   insertNotes:{
-   description:'記譜音の音符を拍位置から順に置く。notesの各要素はstep、octave、den、必要ならalter、dots、tie。大譜表では staff に 1 または 2。省略時は音高で自動選択。overwriteがtrueなら重なった音符を置き換える。',
-   parameters:{type:'object',properties:{part:{type:'string'},measure:{type:'integer'},beat:{type:'number'},overwrite:{type:'boolean'},staff:{type:'integer'},notes:{type:'array'}},required:['measure','notes']},
+   description:'記譜音の音符を拍位置から順に置く。notesの各要素はstep、octave、den、必要ならalter、dots、tie。大譜表では staff に 1 または 2。div.の第2声部は voice に 2。省略時は第1声部、音高で段を自動選択。overwriteがtrueなら重なった音符を置き換える。',
+   parameters:{type:'object',properties:{part:{type:'string'},measure:{type:'integer'},beat:{type:'number'},overwrite:{type:'boolean'},staff:{type:'integer'},voice:{type:'integer'},notes:{type:'array'}},required:['measure','notes']},
    confirm(doc,args){
     if(!flag(args.overwrite))return null;
     const index=resolvePart(doc,args.part),part=partsOf(doc)[index];
@@ -581,10 +591,11 @@
     if(measure>=part.measures.length)fail(`${part.measures.length}小節までしかありません`);
     const events=parseSequence(args.notes,'音符');
     const staff=resolveStaff(part,args,events.filter(event=>event.type==='note').flatMap(event=>event.pitches||[]));
-    const view=C.staffScore(part,staff);
+    const voice=Number(args.voice)===2?2:1;
+    const view=voice===2?C.voiceScore(C.staffScore(part,staff),2):C.staffScore(part,staff);
     const edited=placeSequence(view,measure,beatTick(view,measure,args.beat),events,flag(args.overwrite));
-    return {document:editStaffPart(doc,index,staff,()=>edited),focusPart:index,
-     summary:`${part.instrument}${staff===2?'（下段）':''}の${measure+1}小節から${events.length}音を入力しました`};
+    return {document:editVoicePart(doc,index,staff,voice,()=>edited),focusPart:index,
+     summary:`${part.instrument}${staff===2?'（下段）':''}${voice===2?'の第2声部':''}の${measure+1}小節から${events.length}音を入力しました`};
    }
   },
   setGrandStaff:{
@@ -891,6 +902,70 @@
     const mode=((partsOf(doc)[index].key||0)<0)?'minor':'major';
     const out=PopRuntime.applyDocument(doc,{...args,part:index+1,mode,progression:args.progression||args.template||'auto'});
     return {document:out.document,focusPart:out.focusPart,summary:out.summary};
+   }
+  },
+  shareParts:{
+   description:'隣接する2パートをスコア表示では1段にまとめる（a2）。同じ音はa2、片方だけは1.または2.、違うリズムは符幹を上下に分ける。パート本体とMusicXMLは分かれたまま。onがfalseなら解除。partは上側のパート。',
+   parameters:{type:'object',properties:{part:{type:'string'},on:{type:'boolean'}},required:['on']},
+   run(doc,args){
+    const index=resolvePart(doc,args.part);
+    const enabled=flag(args.on);
+    const existing=(doc.partUnions||[]).find(union=>union.start===index||union.end===index);
+    const next=enabled?C.shareParts(doc,existing?existing.start:index):C.unshareParts(doc,existing?existing.start:index);
+    return {document:next,focusPart:index,summary:enabled?'隣のパートと1段にまとめました':'1段合記を解除しました'};
+   }
+  },
+  setKeyChange:{
+   description:'指定小節から調号を変える。fifthsは-7から7。1小節目なら曲全体の調号。',
+   parameters:{type:'object',properties:{part:{type:'string'},measure:{type:'integer'},fifths:{type:'integer'}},required:['measure','fifths']},
+   run(doc,args){
+    const index=resolvePart(doc,args.part),part=partsOf(doc)[index];
+    const measure=integer(args.measure,'小節',1,part.measures.length)-1;
+    const fifths=integer(args.fifths,'調号',-7,7);
+    return {document:editPart(doc,index,()=>C.setKeyChange(part,measure,fifths)),focusPart:index,summary:`${measure+1}小節目から調号を変えました`};
+   }
+  },
+  setClefChange:{
+   description:'指定小節から音部記号を変える。clefはtreble、bass、alto、tenor、percussion。大譜表の下段はstaffに2。',
+   parameters:{type:'object',properties:{part:{type:'string'},measure:{type:'integer'},clef:{type:'string'},staff:{type:'integer'}},required:['measure','clef']},
+   run(doc,args){
+    const index=resolvePart(doc,args.part),part=partsOf(doc)[index];
+    const measure=integer(args.measure,'小節',1,part.measures.length)-1;
+    const staff=Number(args.staff)===2?2:1;
+    const clef=String(args.clef||'');
+    if(!Object.hasOwn(C.CLEFS,clef))fail('音部記号は treble、bass、alto、tenor、percussion のいずれかです');
+    return {document:editPart(doc,index,()=>C.setClefChange(part,measure,clef,staff)),focusPart:index,summary:`${measure+1}小節目から音部記号を変えました`};
+   }
+  },
+  setPickup:{
+   description:'先頭小節を弱起にする。beatsは拍数。onがfalseなら解除。',
+   parameters:{type:'object',properties:{on:{type:'boolean'},beats:{type:'integer'}}},
+   run(doc,args){
+    const enabled=args.on===undefined?true:flag(args.on);
+    const beats=Number.isInteger(args.beats)?args.beats:1;
+    const parts=partsOf(doc).map(part=>enabled?C.setPickup(part,beats):C.clearPickup(part));
+    return {document:assemble(doc,parts),summary:enabled?'弱起にしました':'弱起を解除しました'};
+   }
+  },
+  addGrace:{
+   description:'選択位置の音符に短い装飾音を付ける。stepとoctaveを省略すると主音の上の音。onがfalseなら外す。',
+   parameters:{type:'object',properties:{part:{type:'string'},measure:{type:'integer'},beat:{type:'number'},step:{type:'string'},octave:{type:'integer'},on:{type:'boolean'}},required:['measure']},
+   run(doc,args){
+    const index=resolvePart(doc,args.part),part=partsOf(doc)[index];
+    const measure=integer(args.measure,'小節',1,part.measures.length)-1;
+    const tick=beatTick(part,measure,args.beat);
+    const span=C.eventSpans(part,measure,false).find(item=>item.start===tick&&item.event.type==='note')||C.eventSpans(part,measure,false).find(item=>item.event.type==='note');
+    if(!span)fail('装飾音を付ける音符がありません');
+    const enabled=args.on===undefined?true:flag(args.on);
+    const edited=C.changeEvent(part,span.event.id,event=>{
+     if(!enabled){delete event.graces;return event;}
+     const pitch=event.pitches.at(-1);
+     const step=args.step?String(args.step).toUpperCase():null;
+     const above=C.diatonicNumber(pitch)+1;
+     event.graces=[C.normalPitch(step?{step,octave:Number.isInteger(args.octave)?args.octave:pitch.octave,alter:0}:{step:C.STEPS[above%7],octave:Math.floor(above/7)-1,alter:0})];
+     return event;
+    });
+    return {document:editPart(doc,index,()=>edited),focusPart:index,summary:enabled?'装飾音を付けました':'装飾音を外しました'};
    }
   },
   exportMusicXML:{
