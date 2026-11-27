@@ -2,6 +2,10 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const C=require('../src/core.js');
 const E=require('../src/musicxml.js');
+function singleStaff(overrides={}){
+  const {staves,instrumentKey,...score}=C.createScore();
+  return {...score,instrument:'フルート',clef:'treble',sound:'フルート',...overrides};
+}
 
 test('duration ticks use exact integers even for double-dots',()=>{
  assert.equal(C.durationTicks(4,0),960); assert.equal(C.durationTicks(4,1),1440);
@@ -39,7 +43,7 @@ test('MusicXML exports correct 3/4 time, chord and explicit filler rests',()=>{
  assert.match(xml,/<rest \/>/);
 });
 test('KSL uses C4= c\' spelling and fills bars',()=>{
- const score=C.createScore(); score.measures[0].events=[C.makeNote({step:'C',alter:0,octave:4})];
+ const score=singleStaff(); score.measures[0].events=[C.makeNote({step:'C',alter:0,octave:4})];
  const s=E.ksl(score); assert.match(s,/c'4/); assert.match(s,/s2 s4/);
 });
 test('prevent invalid time change that creates overfull measure',()=>{
@@ -341,7 +345,7 @@ test('custom 19:4 tuplets keep the measure grid and export exact durations',()=>
 
 test('two voices keep independent timelines through duplication, export, and collaboration',()=>{
  const S=require('../src/sync.js');
- const base=C.createScore(),bar=base.measures[0];
+ const base=singleStaff(),bar=base.measures[0];
  const first=C.makeNote({step:'C',alter:0,octave:5},2);
  const second=['E','D','C','G'].map(step=>C.makeNote({step,alter:0,octave:4},8));
  const upper={...base,measures:[{...bar,events:[first]}]};

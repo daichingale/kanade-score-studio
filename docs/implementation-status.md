@@ -1,5 +1,13 @@
 # 設計書との差分と改善記録
 
+## 2026-11-27：大譜表とパート括弧
+
+- パートに任意の `staves`（最大2段）。ピアノは既定で大譜表。ハープ・マリンバ・チェレスタ・オルガン等も切替可能。「大譜表にする / 1段に戻す」は `commit()` 経由で Undo 可。
+- Verovio MEI は `staffGrp symbol="brace" bar.thru="true"`。MusicXML は `<staves>2</staves>` と各音の `<staff>`。2段の MusicXML（OMR含む）は分割せず大譜表のまま取り込む。
+- 編集はクリックまたは `\` で上下段切替。再生は両段を同一音色で鳴らす。AI ツールに `setGrandStaff` / `groupParts`、入力系に `staff` 引数。
+- 隣接パートの括弧／中括弧（`staffGroups` ↔ MusicXML `part-group`）。a2／divisi の1段合記は未実装（フォローアップ）。
+- 従来レンダラは下段編集時に単段表示。刻譜（Verovio）が大譜表の主経路。
+
 2026-10-28。元設計の資料は `design-reference/` に変更せず保存した。元のチェックボックスは実装状況を表すものではない。現在の正本はWeb版であり、Rustのマイルストーン完了とは分けて評価する。
 
 | 設計項目 | 今回の対応 | 残る範囲 |

@@ -41,6 +41,7 @@
    '直前の自分の編集を1段階戻すのは undoAiChange です。まとめて戻すボタンはユーザーが押します。MusicXMLは exportMusicXML です。',
    'ポップやJ-POPの王道進行で伴奏を入れるときは applyPopProgression を使う。progression に auto、IV-V-iii-vi、vi-IV-I-V、canon、komuro など。grid は bar か half、voicing は block・root5・arpeggio。',
    '作曲・ひらめき・バラード風の短い旋律を楽譜に書くときは inspireSpark を使う（mood・part・measure・bars・seed。既定で apply して書き込む。提案だけなら apply:false）。ユーザーが「N小節」と書いたら bars に N を必ず渡す（最大8）。決まった音型のファンファーレや明示フレーズは writePhrase。',
+   '大譜表にする／1段に戻すは setGrandStaff（part と on）。隣接パートを括弧でまとめるのは groupParts（parts または start/end、symbol は bracket か brace）。大譜表への writePhrase / insertNotes / inspireSpark は staff に 1（上段）か 2（下段）を渡せる。省略時は音高で自動選択する。',
    '人数や足りない楽器から編成を考えるときは proposeInstrumentation を使う。headcountは人数、missingは抜く楽器、styleはconcert、small、marching、bright、levelは初級、中級、上級。確認が出るまで楽譜は変えない。',
    '旋律を編成に広げるときは arrangeMelody を使う。音程や移調の計算はせず、doublePart、voiceChords、fixRanges、getInstrumentRanges、checkRanges に任せる。書き終えたら checkRanges の結果を日本語で伝える。',
    'ツールは必要な回数だけ使い、同じ失敗を繰り返しません。コンクール規定や著作権は記憶だけで断定しません。音域は指定された難易度の実用音域に合わせます。'
@@ -303,6 +304,8 @@
   }
   if(/insertrests|addrests/.test(lower))return {name:'insertRests',arguments:normalizeToolArgs('insertRests',args)};
   if(/getscoresummary|scoresummary/.test(lower))return {name:'getScoreSummary',arguments:{}};
+  if(/setgrandstaff|grandstaff/.test(lower))return {name:'setGrandStaff',arguments:normalizeToolArgs('setGrandStaff',args)};
+  if(/groupparts|partgroup|bracket/.test(lower))return {name:'groupParts',arguments:normalizeToolArgs('groupParts',args)};
   return null;
  }
  function normalizeToolRecord(record){

@@ -238,3 +238,19 @@ test('a real template with existing notes asks before replacing',()=>{
  assert.match(Tools.confirmText(score,'applyEnsembleTemplate',{id:'wind',replace:true}),/音符は残しません/);
  assert.equal(Tools.confirmText(C.createScore(),'applyEnsembleTemplate',{id:'wind',replace:true}),null);
 });
+
+test('setGrandStaff and groupParts update the score through undoable tools',()=>{
+ let score=C.createScore();
+ assert.equal(C.isGrandStaff(score),true);
+ score=Tools.run(score,'setGrandStaff',{on:false}).document;
+ assert.equal(C.isGrandStaff(score),false);
+ score=Tools.run(score,'setGrandStaff',{on:true}).document;
+ assert.equal(C.isGrandStaff(score),true);
+ const lower=Tools.run(score,'insertNotes',{measure:1,staff:2,notes:[{step:'C',octave:3,den:4}]}).document;
+ assert.ok(lower.measures[0].staff2.some(event=>event.type==='note'));
+ const flute=Tools.run(C.createScore(),'addParts',{keys:['flute','flute']}).document;
+ const grouped=Tools.run(flute,'groupParts',{parts:[1,2],symbol:'bracket'}).document;
+ assert.equal(grouped.staffGroups[0].symbol,'bracket');
+ assert.equal(grouped.staffGroups[0].start,0);
+ assert.equal(grouped.staffGroups[0].end,1);
+});

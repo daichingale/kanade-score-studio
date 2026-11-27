@@ -81,9 +81,54 @@
     const kit=P.preset(sound);
     return kit?gm[kit.kind][P.voice(sound,pitch).index]:unpitchedGM[sound]??38;
   }
+  function clefXML(clefName,number){
+    const clef=C.CLEFS[clefName]||C.CLEFS.treble;
+    const num=number?` number="${number}"`:'';
+    return `<clef${num}><sign>${clef.sign}</sign>${clef.line?`<line>${clef.line}</line>`:''}</clef>`;
+  }
+  function writeVoiceNotes(out,track,i,notes,grid,voice,staff,slurs,options={}){
+    const {kit,sound,neutral,score,multiVoice,multiStaff}=options;
+    const beams=N.beamMarks(track,i);
+    let tick=0;
+    for(const [index,e] of notes.entries()) {
+      const flags=C.tieFlags(track,i,index),ties=[...(flags.stop?['stop']:[]),...(flags.start?['start']:[])];
+      const duration=grid.duration(e);
+      const pitchXml=e.type==='rest'?[null]:e.pitches;
+      for(const [j,p] of pitchXml.entries()) {
+        out.push('      <note>');
+        if(j>0) out.push('        <chord />');
+        if(!p) out.push('        <rest />');
+        else if(neutral)out.push(`        <unpitched><display-step>${score.staffLines===1?'E':p.step}</display-step><display-octave>${score.staffLines===1?4:p.octave}</display-octave></unpitched>`);
+        else out.push(`        <pitch><step>${p.step}</step>${p.alter?`<alter>${p.alter}</alter>`:''}<octave>${p.octave}</octave></pitch>`);
+        out.push(`        <duration>${duration}</duration>`);
+        if(p)for(const type of ties)out.push(`        <tie type="${type}" />`);
+        if(p)out.push(`        <instrument id="I${kit?P.voice(sound,p).index+1:1}" />`);
+        if(multiVoice)out.push(`        <voice>${voice}</voice>`);
+        if(multiStaff)out.push(`        <staff>${staff}</staff>`);
+        out.push(`        <type>${types[e.den]}</type>`);
+        for(let k=0;k<e.dots;k++) out.push('        <dot />');
+        if(e.tuplet){
+          const normalType=C.tupletUnit(e)!==e.den||e.dots?`<normal-type>${types[C.tupletUnit(e)]}</normal-type>`:'';
+          out.push(`        <time-modification><actual-notes>${e.tuplet.actual}</actual-notes><normal-notes>${e.tuplet.normal}</normal-notes>${normalType}</time-modification>`);
+        }
+        const stem=e.stemDirection||(multiVoice?(voice===1||voice===3?'up':'down'):null);
+        if(p&&e.den!==1&&stem)out.push(`        <stem>${stem}</stem>`);
+        if(p&&score.notehead==='cross')out.push('        <notehead>x</notehead>');
+        if(j===0)for(const beam of beams.get(e.id)||[])out.push(`        <beam number="${beam.number}">${beam.value}</beam>`);
+        const bracket=j===0&&e.tuplet&&(e.tuplet.index===0||C.tupletEnd(e)===e.tuplet.actual)?e:null;
+        const slur=staff===1&&voice===1&&j===0&&p?slurs.get(i+':'+tick)||[]:[];
+        if(bracket||slur.length||p&&(ties.length||j===0&&e.articulations?.length))
+          out.push('        '+notationXML(j===0?e.articulations||[]:[],ties,bracket,slur));
+        if(e.lyric && j===0) out.push(`        <lyric number="1"><syllabic>single</syllabic><text>${esc(e.lyric)}</text></lyric>`);
+        out.push('      </note>');
+      }
+      tick+=C.eventTicks(e);
+    }
+  }
   function musicXML(score) {
     const errors=C.validateScore(score); if(errors.length) throw new Error(errors[0]);
-    const sound=C.soundName(score),kit=P.preset(sound),neutral=score.clef==='percussion',clef=C.CLEFS[score.clef],t=C.transposition(score);
+    const sound=C.soundName(score),kit=P.preset(sound),neutral=score.clef==='percussion',t=C.transposition(score);
+    const grand=C.isGrandStaff(score),staves=C.partStaves(score);
     const pads=kit?.pads||[['C',score.instrument]];
     const instruments=kit||neutral?pads.map(([,label],i)=>`<score-instrument id="I${i+1}"><instrument-name>${esc(label)}</instrument-name></score-instrument>`).join(''):`<score-instrument id="I1"><instrument-name>${esc(score.instrument)}</instrument-name></score-instrument>`;
     const midi=kit||neutral?pads.map((_,i)=>`<midi-instrument id="I${i+1}"><midi-channel>10</midi-channel><midi-unpitched>${(kit?gm[kit.kind][i]:unpitchedGM[sound]??38)+1}</midi-unpitched></midi-instrument>`).join(''):`<midi-instrument id="I1"><midi-channel>1</midi-channel><midi-program>${midiProgram(sound)}</midi-program></midi-instrument>`;
@@ -105,81 +150,68 @@
         attachSlur(mi,mark.tick,'start',index+1);attachSlur(end.mi,end.tick,'stop',index+1);
       }
     }
-    const lower=score.measures.some(bar=>bar.voice2?.length)?C.voiceScore(score,2):null;
+    const voice2=score.measures.some(bar=>bar.voice2?.length)?C.voiceScore(score,2):null;
+    const lower=grand?C.staffScore(score,2):null;
     let previousDivisions=null;
     for(const [i,measure] of score.measures.entries()) {
       const time=C.timeAt(score,i),events=C.eventsWithRests(measure,time);
-      const secondary=measure.voice2?.length?C.eventsWithRests(lower.measures[i],time):[];
-      const grid=durationGrid(events,secondary);
+      const secondary=measure.voice2?.length?C.eventsWithRests(voice2.measures[i],time):[];
+      const bassEvents=grand?C.eventsWithRests({events:measure.staff2||[]},time):[];
+      const grid=durationGrid(events,[...secondary,...bassEvents]);
       const divisions=grid.divisions!==previousDivisions?`<divisions>${grid.divisions}</divisions>`:'';
       previousDivisions=grid.divisions;
       const meter=`<time><beats>${time.num}</beats><beat-type>${time.den}</beat-type></time>`;
       out.push(`    <measure implicit="no" number="${i+1}">`);
-      if(i===0) out.push(`      <attributes>${divisions}<key><fifths>${neutral?0:score.key}</fifths></key>${meter}<clef><sign>${clef.sign}</sign>${clef.line?`<line>${clef.line}</line>`:''}</clef><staff-details><staff-lines>${score.staffLines||5}</staff-lines></staff-details>${!neutral&&(t.chromatic||t.octave)?`<transpose><diatonic>${t.diatonic}</diatonic><chromatic>${t.chromatic}</chromatic>${t.octave?`<octave-change>${t.octave}</octave-change>`:''}</transpose>`:''}</attributes>`,`      <direction placement="above"><direction-type><metronome parentheses="no"><beat-unit>quarter</beat-unit><per-minute>${score.tempo}</per-minute></metronome></direction-type><sound tempo="${score.tempo}" /></direction>`);
-      else{
+      if(i===0){
+        const clefs=staves.map((entry,index)=>clefXML(entry.clef,grand?index+1:undefined)).join('');
+        const staffDetails=staves.map((entry,index)=>`<staff-details${grand?` number="${index+1}"`:''}><staff-lines>${entry.staffLines||score.staffLines||5}</staff-lines></staff-details>`).join('');
+        const stavesTag=grand?`<staves>${staves.length}</staves>`:'';
+        out.push(`      <attributes>${divisions}<key><fifths>${neutral?0:score.key}</fifths></key>${meter}${stavesTag}${clefs}${staffDetails}${!neutral&&(t.chromatic||t.octave)?`<transpose><diatonic>${t.diatonic}</diatonic><chromatic>${t.chromatic}</chromatic>${t.octave?`<octave-change>${t.octave}</octave-change>`:''}</transpose>`:''}</attributes>`,`      <direction placement="above"><direction-type><metronome parentheses="no"><beat-unit>quarter</beat-unit><per-minute>${score.tempo}</per-minute></metronome></direction-type><sound tempo="${score.tempo}" /></direction>`);
+      }else{
         const timeChange=C.sameTime(time,C.timeAt(score,i-1))?'':meter;
         if(divisions||timeChange)out.push(`      <attributes>${divisions}${timeChange}</attributes>`);
       }
       const ending=C.endingEdges(score,i);
       if(measure.repeatStart||ending.start)out.push(`      <barline location="left">${measure.repeatStart?'<bar-style>heavy-light</bar-style>':''}${ending.start?`<ending number="${measure.volta}" type="start"/>`:''}${measure.repeatStart?'<repeat direction="forward"/>':''}</barline>`);
       out.push(...directionsXML(score,i,grid.offset));
-      const tracks=secondary.length?[[1,events,score],[2,secondary,lower]]:[[1,events,score]];
-      for(const [voice,notes,track] of tracks){
-        if(voice===2)out.push(`      <backup><duration>${BigInt(C.barTicks(score,i))*grid.divisions/BigInt(C.TPQ)}</duration></backup>`);
-        const beams=N.beamMarks(track,i);
-        let tick=0;
-        for(const [index,e] of notes.entries()) {
-          const flags=C.tieFlags(track,i,index),ties=[...(flags.stop?['stop']:[]),...(flags.start?['start']:[])];
-          const duration=grid.duration(e);
-          const pitchXml=e.type==='rest'?[null]:e.pitches;
-          for(const [j,p] of pitchXml.entries()) {
-            out.push('      <note>');
-            if(j>0) out.push('        <chord />');
-            if(!p) out.push('        <rest />');
-            else if(neutral)out.push(`        <unpitched><display-step>${score.staffLines===1?'E':p.step}</display-step><display-octave>${score.staffLines===1?4:p.octave}</display-octave></unpitched>`);
-            else out.push(`        <pitch><step>${p.step}</step>${p.alter?`<alter>${p.alter}</alter>`:''}<octave>${p.octave}</octave></pitch>`);
-            out.push(`        <duration>${duration}</duration>`);
-            if(p)for(const type of ties)out.push(`        <tie type="${type}" />`);
-            if(p)out.push(`        <instrument id="I${kit?P.voice(sound,p).index+1:1}" />`);
-            if(secondary.length)out.push(`        <voice>${voice}</voice>`);
-            out.push(`        <type>${types[e.den]}</type>`);
-            for(let k=0;k<e.dots;k++) out.push('        <dot />');
-            if(e.tuplet){
-              const normalType=C.tupletUnit(e)!==e.den||e.dots?`<normal-type>${types[C.tupletUnit(e)]}</normal-type>`:'';
-              out.push(`        <time-modification><actual-notes>${e.tuplet.actual}</actual-notes><normal-notes>${e.tuplet.normal}</normal-notes>${normalType}</time-modification>`);
-            }
-            const stem=e.stemDirection||(secondary.length?(voice===1?'up':'down'):null);
-            if(p&&e.den!==1&&stem)out.push(`        <stem>${stem}</stem>`);
-            if(p&&score.notehead==='cross')out.push('        <notehead>x</notehead>');
-            if(j===0)for(const beam of beams.get(e.id)||[])out.push(`        <beam number="${beam.number}">${beam.value}</beam>`);
-            const bracket=j===0&&e.tuplet&&(e.tuplet.index===0||C.tupletEnd(e)===e.tuplet.actual)?e:null;
-            const slur=voice===1&&j===0&&p?slurs.get(i+':'+tick)||[]:[];
-            if(bracket||slur.length||p&&(ties.length||j===0&&e.articulations?.length))
-              out.push('        '+notationXML(j===0?e.articulations||[]:[],ties,bracket,slur));
-            if(e.lyric && j===0) out.push(`        <lyric number="1"><syllabic>single</syllabic><text>${esc(e.lyric)}</text></lyric>`);
-            out.push('      </note>');
-          }
-          tick+=C.eventTicks(e);
-        }
+      const multiVoice=!!(secondary.length||bassEvents.length),multiStaff=grand;
+      const layers=[[1,1,events,score]];
+      if(secondary.length)layers.push([2,1,secondary,voice2]);
+      if(bassEvents.length)layers.push([3,2,bassEvents,lower]);
+      const options={kit,sound,neutral,score,multiVoice,multiStaff};
+      for(const [voice,staff,notes,track] of layers){
+        if(voice>1)out.push(`      <backup><duration>${BigInt(C.barTicks(score,i))*grid.divisions/BigInt(C.TPQ)}</duration></backup>`);
+        writeVoiceNotes(out,track,i,notes,grid,voice,staff,slurs,options);
       }
       if(measure.repeatEnd||ending.stop)out.push(`      <barline location="right">${measure.repeatEnd?'<bar-style>light-heavy</bar-style>':''}${ending.stop?`<ending number="${measure.volta}" type="stop"/>`:''}${measure.repeatEnd?'<repeat direction="backward"/>':''}</barline>`);
       out.push('    </measure>');
     }
     out.push('  </part>','</score-partwise>'); return out.join('\n')+'\n';
   }
-  function musicXMLScore(parts){
+  function musicXMLScore(parts,staffGroups=[]){
     if(parts.length===1)return musicXML(parts[0]);
     const documents=parts.map((part,index)=>musicXML(part).replace(/"P1"/g,`"P${index+1}"`)
       .replace(/id="I(\d+)"/g,(_,instrument)=>`id="P${index+1}-I${instrument}"`));
     const header=documents[0].split('  <part-list>')[0];
-    const entries=documents.map(xml=>xml.match(/<score-part id=[\s\S]*?<\/score-part>/)[0]).join('\n    ');
+    const groups=staffGroups.length?staffGroups:(parts.staffGroups||[]);
+    const entries=[];
+    for(let index=0;index<parts.length;index++){
+      for(const group of groups.filter(item=>item.start===index)){
+        entries.push(`<part-group type="start" number="${esc(String(group.id).slice(0,8))}"><group-symbol>${group.symbol}</group-symbol></part-group>`);
+      }
+      entries.push(documents[index].match(/<score-part id=[\s\S]*?<\/score-part>/)[0]);
+      for(const group of groups.filter(item=>item.end===index)){
+        entries.push(`<part-group type="stop" number="${esc(String(group.id).slice(0,8))}"/>`);
+      }
+    }
     const voices=documents.map(xml=>xml.match(/  <part id=[\s\S]*?<\/part>/)[0]).join('\n');
-    return `${header}  <part-list>\n    ${entries}\n  </part-list>\n${voices}\n</score-partwise>\n`;
+    return `${header}  <part-list>\n    ${entries.join('\n    ')}\n  </part-list>\n${voices}\n</score-partwise>\n`;
   }
   function ksl(score) {
     const errors=C.validateScore(score); if(errors.length) throw new Error(errors[0]);
     if(score.measures.some(m=>m.repeatStart||m.repeatEnd||m.volta))throw new Error('反復記号を含む楽譜は MusicXML で書き出してください');
     if(score.measures.some(m=>m.voice2?.length))throw new Error('第2声部を含む楽譜は MusicXML で書き出してください');
+    if(C.isGrandStaff(score)||score.measures.some(m=>m.staff2?.length))throw new Error('大譜表を含む楽譜は MusicXML で書き出してください');
     if(score.measures.some(m=>m.events.some(e=>e.tuplet)))throw new Error('連符を含む楽譜は MusicXML で書き出してください');
     const key=score.key<0?flatNames[score.key]+' major':keyNames[score.key]+' major';
     const pitch=p=>p.step.toLowerCase()+ (p.alter>0?'#'.repeat(p.alter):p.alter<0?'b'.repeat(-p.alter):'') +(p.octave>3?"'".repeat(p.octave-3):','.repeat(3-p.octave));

@@ -79,24 +79,31 @@
       engine.postMessage({id,data,options:options(kind)});
     });
   }
-  function readBox(measure){
-    const staff=measure.querySelector?.('.staff')||measure;
-    const lines=[...staff.querySelectorAll('path')].map(path=>{
-      const match=(path.getAttribute('d')||'').match(/M\s*([\d.]+)[,\s]+([\d.]+)\s+L\s*([\d.]+)[,\s]+([\d.]+)/);
-      if(!match)return null;
-      const line={x0:+match[1],y:+match[2],x1:+match[3],y2:+match[4]};
-      if(Math.abs(line.y-line.y2)>1||Math.abs(line.x1-line.x0)<20)return null;
-      return line;
+  function staffBoxes(measure){
+    const staffNodes=[...measure.querySelectorAll(':scope > g.staff, :scope > .staff')];
+    const targets=staffNodes.length?staffNodes:[measure];
+    return targets.map((staff,index)=>{
+      const lines=[...staff.querySelectorAll('path')].map(path=>{
+        const match=(path.getAttribute('d')||'').match(/M\s*([\d.]+)[,\s]+([\d.]+)\s+L\s*([\d.]+)[,\s]+([\d.]+)/);
+        if(!match)return null;
+        const line={x0:+match[1],y:+match[2],x1:+match[3],y2:+match[4]};
+        if(Math.abs(line.y-line.y2)>1||Math.abs(line.x1-line.x0)<20)return null;
+        return line;
+      }).filter(Boolean);
+      if(!lines.length)return null;
+      const longest=Math.max(...lines.map(line=>Math.abs(line.x1-line.x0)));
+      const staffLines=lines.filter(line=>Math.abs(line.x1-line.x0)>longest*0.6).sort((a,b)=>a.y-b.y);
+      const used=staffLines.length?staffLines:lines.sort((a,b)=>a.y-b.y);
+      const gaps=[];
+      for(let i=1;i<used.length;i++)gaps.push(used[i].y-used[i-1].y);
+      gaps.sort((a,b)=>a-b);
+      return {staff:index+1,x0:Math.min(...used.map(line=>Math.min(line.x0,line.x1))),x1:Math.max(...used.map(line=>Math.max(line.x0,line.x1))),
+        top:used[0].y,bottom:used[used.length-1].y,space:gaps[Math.floor(gaps.length/2)]||180,lines:used.length};
     }).filter(Boolean);
-    if(!lines.length)return null;
-    const longest=Math.max(...lines.map(line=>Math.abs(line.x1-line.x0)));
-    const staffLines=lines.filter(line=>Math.abs(line.x1-line.x0)>longest*0.6).sort((a,b)=>a.y-b.y);
-    const used=staffLines.length?staffLines:lines.sort((a,b)=>a.y-b.y);
-    const gaps=[];
-    for(let index=1;index<used.length;index++)gaps.push(used[index].y-used[index-1].y);
-    gaps.sort((a,b)=>a-b);
-    return {x0:Math.min(...used.map(line=>Math.min(line.x0,line.x1))),x1:Math.max(...used.map(line=>Math.max(line.x0,line.x1))),
-      top:used[0].y,bottom:used[used.length-1].y,space:gaps[Math.floor(gaps.length/2)]||180,lines:used.length};
+  }
+  function readBox(measure){
+    const boxes=staffBoxes(measure);
+    return boxes[0]||null;
   }
   function systemStart(measure,box){
     const svg=measure.ownerSVGElement;
@@ -221,41 +228,51 @@
     const measures=[...host.querySelectorAll('.measure')].filter(measure=>!svg||measure.ownerSVGElement===svg);
     let found=null,loose=null;
     for(const measure of measures){
-      const box=readBox(measure);
-      if(!box)continue;
-      const pad=box.space*3;
-      if(point.y<box.top-pad||point.y>box.bottom+pad||point.x<box.x0-8||point.x>box.x1+8)continue;
-      const tight=point.x>=box.x0&&point.x<=box.x1&&point.y>=box.top-box.space&&point.y<=box.bottom+box.space;
-      if(tight){found={measure,box};break;}
-      loose={measure,box};
+      const boxes=staffBoxes(measure);
+      for(const box of boxes){
+        const pad=box.space*3;
+        if(point.y<box.top-pad||point.y>box.bottom+pad||point.x<box.x0-8||point.x>box.x1+8)continue;
+        const tight=point.x>=box.x0&&point.x<=box.x1&&point.y>=box.top-box.space&&point.y<=box.bottom+box.space;
+        if(tight){found={measure,box};break;}
+        if(!loose||Math.abs(point.y-((box.top+box.bottom)/2))<Math.abs(point.y-((loose.box.top+loose.box.bottom)/2)))
+          loose={measure,box};
+      }
+      if(found)break;
     }
     found=found||loose;
     if(!found)return null;
     const mi=Number(found.measure.dataset.measure);
     if(!Number.isInteger(mi)||!score.measures[mi])return null;
-    const cap=C.barTicks(score,mi);
-    const points=engravedPoints(found.measure);
-    const placed=Mei.tickFromEngraving(point.x,found.box,points,{cap,den,dots,score,mi,systemStart:systemStart(found.measure,found.box),notesStart:leadingEdge(found.measure,found.box),overwrite:!!extras.overwrite});
+    const staff=Math.min(C.staffCount(score),found.box.staff||1);
+    const editScore=C.staffScore(score,staff);
+    const clef=C.staffClef(score,staff);
+    const cap=C.barTicks(editScore,mi);
+    const points=engravedPoints(found.measure).filter(point=>!point.staff||point.staff===staff);
+    const placed=Mei.tickFromEngraving(point.x,found.box,points,{cap,den,dots,score:editScore,mi,systemStart:systemStart(found.measure,found.box),notesStart:leadingEdge(found.measure,found.box),overwrite:!!extras.overwrite});
     const tick=extras.overwrite&&extras.onset!==undefined?extras.onset:placed.tick;
-    let pitch=Mei.pitchFromStaff(point.y,found.box,score.clef);
-    if(score.clef==='percussion'&&(score.staffLines||5)===1&&extras.drum)pitch={...pitch,step:extras.drum.step,octave:extras.drum.octave};
+    let pitch=Mei.pitchFromStaff(point.y,found.box,clef);
+    if(clef==='percussion'&&(C.staffLinesOf(score,staff)||5)===1&&extras.drum)pitch={...pitch,step:extras.drum.step,octave:extras.drum.octave};
     const shift=extras.octaveShift||0;
     const octave=Math.max(0,Math.min(8,pitch.octave+shift));
-    const y=Mei.yForPitch({step:pitch.step,octave,alter:0},found.box,score.clef);
-    const valid=C.canPlaceAt(score,mi,tick,den,dots,{overwrite:!!extras.overwrite});
-    return {mi,tick,x:Mei.xForTick(tick,found.box,points,{cap,systemStart:systemStart(found.measure,found.box),notesStart:leadingEdge(found.measure,found.box)}),y,step:pitch.step,octave,valid,svg:found.measure.ownerSVGElement,top:found.box.top};
+    const y=Mei.yForPitch({step:pitch.step,octave,alter:0},found.box,clef);
+    const valid=C.canPlaceAt(editScore,mi,tick,den,dots,{overwrite:!!extras.overwrite});
+    return {mi,tick,staff,x:Mei.xForTick(tick,found.box,points,{cap,systemStart:systemStart(found.measure,found.box),notesStart:leadingEdge(found.measure,found.box)}),y,step:pitch.step,octave,valid,svg:found.measure.ownerSVGElement,top:found.box.top};
   }
   function ghostAt(host,score,draft,den,dots,overwrite){
     const measure=[...host.querySelectorAll('.measure')].find(node=>Number(node.dataset.measure)===draft.mi);
     if(!measure)return null;
-    const box=readBox(measure);
+    const boxes=staffBoxes(measure);
+    const staff=draft.staff||1;
+    const box=boxes.find(item=>item.staff===staff)||boxes[0];
     if(!box)return null;
-    const cap=C.barTicks(score,draft.mi);
+    const editScore=C.staffScore(score,staff);
+    const clef=C.staffClef(score,staff);
+    const cap=C.barTicks(editScore,draft.mi);
     const points=engravedPoints(measure);
-    const timing={cap,den,dots,score,mi:draft.mi,systemStart:systemStart(measure,box),notesStart:leadingEdge(measure,box),overwrite};
-    const y=Mei.yForPitch({step:draft.step,octave:draft.octave,alter:0},box,score.clef);
-    return {mi:draft.mi,tick:draft.tick,x:Mei.xForTick(draft.tick,box,points,timing),y,step:draft.step,octave:draft.octave,
-      valid:C.canPlaceAt(score,draft.mi,draft.tick,den,dots,{overwrite:!!overwrite}),svg:measure.ownerSVGElement};
+    const timing={cap,den,dots,score:editScore,mi:draft.mi,systemStart:systemStart(measure,box),notesStart:leadingEdge(measure,box),overwrite};
+    const y=Mei.yForPitch({step:draft.step,octave:draft.octave,alter:0},box,clef);
+    return {mi:draft.mi,tick:draft.tick,staff,x:Mei.xForTick(draft.tick,box,points,timing),y,step:draft.step,octave:draft.octave,
+      valid:C.canPlaceAt(editScore,draft.mi,draft.tick,den,dots,{overwrite:!!overwrite}),svg:measure.ownerSVGElement};
   }
   function paintGhost(host,hit,den){
     host.querySelectorAll('#kanade-verovio-ghost').forEach(node=>node.remove());
@@ -293,5 +310,5 @@
       :[[0,box.x0],[cap,box.x1]];
     return {top:box.top,grid:grid.map(([tick,x])=>`${tick}:${x}`).join(',')};
   }
-  return {setEnabled,isEnabled,storageKey,sync,hitTest,ghostAt,paintGhost,exportMarkup,engrave,options,readBox,playbackGrid};
+  return {setEnabled,isEnabled,storageKey,sync,hitTest,ghostAt,paintGhost,exportMarkup,engrave,options,readBox,staffBoxes,playbackGrid};
 });
