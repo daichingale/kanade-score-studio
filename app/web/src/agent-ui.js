@@ -330,7 +330,10 @@
       const short=step.name==='getScoreSummary'?'楽譜の概要を確認しました。':
        step.name==='writePhrase'&&/再送/.test(step.text||'')?step.text:
        (step.text||'完了');
-      const visible=Agent.publicAssistantText(short,[])||`${label}しました。`;
+      let visible=Agent.publicAssistantText(short,[])||`${label}しました。`;
+      if(Agent.looksLikeToolPayload(visible)||/[{[]/.test(visible)&&/"(action|name|tool|function|args|arguments)"/.test(visible)){
+       visible=step.ok===false?`${label}に失敗しました。別の言い方で試してください。`:`${label}しました。`;
+      }
       liveSteps[liveSteps.length-1]=visible.length>160?`${label}しました。`:visible;
       if(step.proposal?.options?.length)pendingEnsembleChoices=step.proposal;
      }

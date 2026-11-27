@@ -79,6 +79,14 @@ test('tool calls are read from streamed messages, JSON blocks, and tool_call tag
  const toolShape=Agent.parseToolCallsFromContent('{"tool":"write_phrase","parameters":{"phrase":"G4 q C5 h"}}');
  assert.equal(toolShape[0].name,'writePhrase');
  assert.equal(toolShape[0].arguments.phrase,'G4 q C5 h');
+ const fnShape=Agent.parseToolCallsFromContent('{"function":"addMeasures","args":{"at":5,"count":4}}');
+ assert.equal(fnShape[0].name,'addMeasures');
+ assert.deepEqual(fnShape[0].arguments,{at:5,count:4});
+ const fnHidden=Agent.finishStream({content:'ひらめき機能が読み込まれていません\n{"function":"addMeasures","args":{"at":5,"count":4}}',calls:[],error:''});
+ assert.equal(fnHidden.content.includes('"function"'),false);
+ assert.equal(fnHidden.content.includes('addMeasures'),false);
+ assert.equal(fnHidden.toolCalls[0].name,'addMeasures');
+ assert.equal(fnHidden.rawContent.includes('"function"'),true);
  const camelInsert=Agent.parseToolCallsFromContent('{"name":"insertNotes","arguments":{"measure":1,"notes":[{"step":"Bb","octave":4,"den":4}]}}');
  assert.equal(camelInsert[0].arguments.notes[0].step,'B');
  assert.equal(camelInsert[0].arguments.notes[0].alter,-1);
@@ -250,6 +258,29 @@ test('ndjson chunks decode independently and a partial line waits',()=>{
  assert.equal(Agent.textFromEvent(flushed.events[0]).content,'後');
  const broken=Agent.readNdjson('not-json\n',{flush:true});
  assert.equal(Agent.textFromEvent(broken.events[0]).error,'応答の形式を読み取れませんでした');
+});
+
+test('inspireSpark picks up bar count from the user text when the model omits bars',async()=>{
+ assert.equal(Agent.inferBarsFromText('8小節のバラードイントロ作って'),8);
+ const calls=[];
+ const result=await Agent.runTurn({
+  messages:[{role:'user',content:'8小節のバラードイントロ作って'}],
+  async chat(messages,{absorb}){
+   if(messages.some(message=>message.role==='tool')){
+    absorb({message:{content:'書きました。',done:true},done:true});
+    return null;
+   }
+   absorb({message:{tool_calls:[{function:{name:'inspireSpark',arguments:JSON.stringify({mood:'ballad',apply:true})}}]},done:true});
+   return null;
+  },
+  async execute(call){
+   calls.push(call);
+   assert.equal(call.arguments.bars,8);
+   return {ok:true,summary:'ピアノの1〜8小節にひらめきを書きました。',wrote:1};
+  }
+ });
+ assert.equal(result.writes,1);
+ assert.equal(calls[0].name,'inspireSpark');
 });
 
 test('raw insert_notes JSON is executed and summarized without showing the payload',async()=>{
