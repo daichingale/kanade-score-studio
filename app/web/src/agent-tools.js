@@ -117,6 +117,33 @@
   const replaced=C.replaceScorePart(assemble(doc,parts),index,edited);
   return replaced.ensembleParts?.length?replaced:assemble(doc,[(({ensembleParts,...solo})=>solo)(replaced)]);
  }
+ function ensureMeasureCount(doc,count){
+  const needed=integer(count,'小節数',1,500);
+  const parts=partsOf(doc).map(part=>{
+   let next=part;
+   while(next.measures.length<needed){
+    if(next.measures.length>=500)fail('小節数の上限です');
+    next=C.addMeasure(next);
+   }
+   return next;
+  });
+  return assemble(doc,parts);
+ }
+ function planWritePhrase(doc,args){
+  const index=resolvePart(doc,args.part);
+  const part=partsOf(doc)[index];
+  const name=part.instrument;
+  const segments=parsePhraseSegments(args.phrase);
+  const start=integer(args.measure??1,'小節',1,500)-1;
+  const end=start+segments.length-1;
+  const needed=end+1;
+  const conflict=[];
+  for(let mi=start;mi<=end;mi++){
+   if(mi>=part.measures.length)continue;
+   if((part.measures[mi].events||[]).some(event=>event.type==='note'))conflict.push(mi);
+  }
+  return {index,name,segments,start,end,needed,conflict,beat:args.beat,overwrite:flag(args.overwrite)};
+ }
  function measureRange(part,from,to){
   const start=integer(from??1,'開始小節',1,part.measures.length)-1;
   const end=integer(to??part.measures.length,'終了小節',start+1,part.measures.length)-1;
@@ -409,30 +436,29 @@
    }
   },
   writePhrase:{
-   description:'記譜音の旋律を短いテキストで書く。phrase は "G4 q G4 q C5 h | G4 q G4 q G4 h" のように音高＋音価。音価は w h q e s t（全二分四分八分十六分三十二分）または数字。休符は r4。小節区切りは |。',
-   parameters:{type:'object',properties:{part:{type:'string'},measure:{type:'integer'},beat:{type:'number'},phrase:{type:'string'}},required:['phrase']},
+   description:'記譜音の旋律を短いテキストで書く。phrase は "G4 q G4 q C5 h | G4 q G4 q G4 h" のように音高＋音価。音価は w h q e s t（全二分四分八分十六分三十二分）または数字。休符は r4。小節区切りは |。既存の音符を置き換える・書き直すときは overwrite を true。overwrite なしで既存音符に当たった場合も確認後に置き換える。',
+   parameters:{type:'object',properties:{part:{type:'string'},measure:{type:'integer'},beat:{type:'number'},phrase:{type:'string'},overwrite:{type:'boolean'}},required:['phrase']},
+   confirm(doc,args){
+    const plan=planWritePhrase(doc,args);
+    if(!plan.conflict.length)return null;
+    return `${plan.name}の${plan.start+1}〜${plan.end+1}小節目の音符を置き換えます。`;
+   },
    run(doc,args){
-    const index=resolvePart(doc,args.part);
-    const name=partsOf(doc)[index].instrument;
-    const segments=parsePhraseSegments(args.phrase);
-    const start=integer(args.measure??1,'小節',1,500)-1;
-    const beat=args.beat;
-    let current=C.copy(doc),focus=index,count=0;
-    for(let bar=0;bar<segments.length;bar++){
-     const measure=start+bar;
-     let part=partsOf(current)[index];
-     while(measure>=part.measures.length){
-      const added=operations.addMeasures.run(current,{at:part.measures.length+1,count:1});
-      current=added.document;
-      part=partsOf(current)[index];
-     }
-     const notes=segments[bar].map(note=>note.type==='rest'?{type:'rest',den:note.den,dots:note.dots||0}:{step:note.step,alter:note.alter,octave:note.octave,den:note.den,dots:note.dots||0});
-     const placed=operations.insertNotes.run(current,{part:args.part??name,measure:measure+1,beat:bar===0?beat:1,notes});
+    const plan=planWritePhrase(doc,args);
+    const overwrite=plan.overwrite||plan.conflict.length>0;
+    let current=ensureMeasureCount(doc,plan.needed);
+    let focus=plan.index,count=0;
+    for(let bar=0;bar<plan.segments.length;bar++){
+     const measure=plan.start+bar;
+     const notes=plan.segments[bar].map(note=>note.type==='rest'?{type:'rest',den:note.den,dots:note.dots||0}:{step:note.step,alter:note.alter,octave:note.octave,den:note.den,dots:note.dots||0});
+     const placed=operations.insertNotes.run(current,{part:args.part??plan.name,measure:measure+1,beat:bar===0?plan.beat:1,notes,overwrite});
      current=placed.document;
      focus=placed.focusPart??focus;
      count+=notes.length;
+     current=ensureMeasureCount(current,Math.max(plan.needed,partsOf(current)[0].measures.length));
     }
-    return {document:current,focusPart:focus,summary:`${name}に ${segments.length} 小節・${count} 音を入力しました`};
+    const verb=overwrite&&plan.conflict.length?'置き換え':'入力';
+    return {document:current,focusPart:focus,summary:`${plan.name}の${plan.start+1}〜${plan.end+1}小節を${verb}しました（${plan.segments.length}小節・${count}音）`};
    }
   },
   insertNotes:{
@@ -494,14 +520,14 @@
    }
   },
   addMeasures:{
-   description:'空の小節を挿入する。atは挿入位置（1始まり、末尾の次も可）、countは個数。',
+   description:'空の小節を挿入する。atは挿入位置（1始まり、末尾の次も可）、countは個数。全パートに同じ小節数を足す。',
    parameters:{type:'object',properties:{at:{type:'integer'},count:{type:'integer'}},required:['at']},
    run(doc,args){
-    const part=partsOf(doc)[0];
-    const at=integer(args.at,'挿入位置',1,part.measures.length+1)-1;
+    const parts=partsOf(doc);
+    const at=integer(args.at,'挿入位置',1,parts[0].measures.length+1)-1;
     const count=integer(args.count??1,'小節数',1,32);
-    const edited=B.insertMeasures(part,at,count);
-    return {document:editPart(doc,0,()=>edited),summary:`${at+1}小節目の位置に空の小節を${count}個追加しました`};
+    const updated=parts.map(part=>B.insertMeasures(part,at,count));
+    return {document:assemble(doc,updated),summary:`${at+1}小節目の位置に空の小節を${count}個追加しました`};
    }
   },
   removeMeasures:{

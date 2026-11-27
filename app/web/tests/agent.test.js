@@ -10,6 +10,8 @@ test('system prompt tells a wind-band model how to call the score tools',()=>{
  assert.match(prompt,/writePhrase/);
  assert.match(prompt,/insertNotes/);
  assert.match(prompt,/必ずツールで楽譜に書き込む/);
+ assert.match(prompt,/overwrite:true/);
+ assert.match(prompt,/書き直して/);
  assert.match(prompt,/proposeEnsembleOptions/);
  assert.match(prompt,/applyEnsembleTemplate/);
  assert.match(prompt,/semitones を 2/);

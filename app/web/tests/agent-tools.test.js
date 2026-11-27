@@ -36,6 +36,62 @@ test('writePhrase returns a helpful error for unknown tokens',()=>{
  assert.throws(()=>Tools.run(score,'writePhrase',{phrase:'X9 z'}),/読めません/);
 });
 
+test('writePhrase overwrite replaces existing notes and asks for confirmation',()=>{
+ let score={...C.createScore(),instrument:'トランペット',instrumentKey:'trumpet'};
+ score=Tools.run(score,'writePhrase',{part:'trumpet',measure:1,phrase:'G4 q G4 q C5 h'}).document;
+ const before=notes(score).map(event=>event.pitches[0].step).join('');
+ assert.match(Tools.confirmText(score,'writePhrase',{part:'trumpet',measure:1,phrase:'C5 q D5 q E5 h',overwrite:true}),/トランペットの1〜1小節目の音符を置き換えます/);
+ assert.match(Tools.confirmText(score,'writePhrase',{part:'trumpet',measure:1,phrase:'C5 q D5 q E5 h'}),/置き換えます/);
+ const replaced=Tools.run(score,'writePhrase',{part:'trumpet',measure:1,phrase:'C5 q D5 q E5 h',overwrite:true}).document;
+ const after=notes(replaced).map(event=>event.pitches[0].step).join('');
+ assert.notEqual(after,before);
+ assert.match(after,/CDE/);
+ assert.equal(Tools.confirmText(C.createScore(),'writePhrase',{phrase:'G4 q'}),null);
+});
+
+test('writePhrase without overwrite still plans a confirm when notes already exist',()=>{
+ let score={...C.createScore(),instrument:'トランペット',instrumentKey:'trumpet'};
+ score=Tools.run(score,'writePhrase',{measure:1,phrase:'G4 q'}).document;
+ const text=Tools.confirmText(score,'writePhrase',{measure:1,phrase:'A4 q'});
+ assert.match(text,/置き換えます/);
+ const next=Tools.run(score,'writePhrase',{measure:1,phrase:'A4 q'}).document;
+ assert.equal(notes(next)[0].pitches[0].step,'A');
+});
+
+test('writePhrase pads every part when extending the score',()=>{
+ let score=Tools.run(C.createScore(),'addParts',{keys:['trumpet','clarinet']}).document;
+ assert.equal(C.scoreParts(score).every(part=>part.measures.length===1),true);
+ const out=Tools.run(score,'writePhrase',{part:'trumpet',measure:1,phrase:'G4 q G4 q C5 h | G4 q G4 q G4 h | C5 q E5 q G5 h | G4 q E5 q C5 w'});
+ const parts=C.scoreParts(out.document);
+ assert.equal(parts.length,3);
+ assert.equal(parts.every(part=>part.measures.length===parts[0].measures.length),true);
+ assert.ok(parts[0].measures.length>=4);
+});
+
+test('writePhrase overwrite is one undoable AI apply through the host',()=>{
+ const Agent=require('../src/agent');
+ let doc={...C.createScore(),instrument:'トランペット',instrumentKey:'trumpet'};
+ doc=Tools.run(doc,'writePhrase',{measure:1,phrase:'G4 q G4 q C5 h'}).document;
+ const original=JSON.stringify(doc);
+ const history=[];
+ const host={
+  getDocument:()=>doc,
+  apply(next){history.push(JSON.stringify(doc));doc=next;},
+  undoAi(count){
+   for(let i=0;i<count;i++){const snap=history.pop();if(!snap)throw new Error('なし');doc=JSON.parse(snap);}
+  }
+ };
+ Agent.attach(host);
+ try{Agent.api.call('writePhrase',{measure:1,phrase:'A4 q'},{});assert.fail('expected confirm');}
+ catch(error){assert.match(error.message,/確認/);assert.match(error.confirmation.summary,/置き換えます/);}
+ const result=Agent.api.call('writePhrase',{measure:1,phrase:'C5 q D5 q E5 h',overwrite:true},{confirmed:true});
+ assert.equal(result.wrote,1);
+ assert.equal(notes(doc)[0].pitches[0].step,'C');
+ assert.equal(history.length,1);
+ Agent.api.undo(1);
+ assert.equal(JSON.stringify(doc),original);
+});
+
 test('metadata, tempo, key and meter edit a copy and keep the original',()=>{
  const score=C.createScore();
  const before=freeze(score);

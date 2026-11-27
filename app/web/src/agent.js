@@ -34,7 +34,8 @@
    '曲名は setMetadata、テンポは setTempo、コンサート調は setKey（ハ長調は fifths 0、変ホ長調は -3、変ロ長調は -2）、拍子は setTimeSignature です。',
    '編成変更は必ず proposeEnsembleOptions で2〜3案を出し、ユーザーがチャットで選んだ optionId で applyEnsembleOption を実行します。テンプレのみなら applyEnsembleTemplate（wind、smallWind、windSymphony、marching、brassBand）。楽器を足すだけは addParts、並べ替えは reorderParts、楽器変更は changePartInstrument、削除と譜面移行は removePartRedistribute。',
    'ユーザーが音符・ファンファーレ・旋律の入力を求めたら、説明や質問だけで終えず必ずツールで楽譜に書き込む。短いフレーズは writePhrase を優先（例: part に「トランペット」、measure 1、phrase "G4 q G4 q C5 h | G4 q G4 q G4 h | C5 q E5 q G5 h | G4 q E5 q C5 w"）。詳細な JSON が必要なときだけ insertNotes。',
-   '音符は insertNotes、休符は insertRests です。既存の音符を置き換えるときだけ overwrite を true にします。ツールは API の tool_calls で呼び、文章だけで JSON を出力しない。',
+   '既存の小節を書き直す・置き換える・上書きする依頼（書き直して、置き換えて、上書き）では writePhrase / insertNotes に overwrite:true を付ける。確認ダイアログが出たらユーザーの承認後に置き換わる。エディタの上書きモードには依存しない。',
+   '音符は insertNotes、休符は insertRests です。ツールは API の tool_calls で呼び、文章だけで JSON を出力しない。',
    '「全音上げて」は transpose の semitones を 2、「半音上げて」は 1 です。音名で一段上げるときは steps を 1 にします。これは記譜音を動かす操作で、楽器の移調設定自体は変えません。',
    '小節を足すのは addMeasures、消すのは removeMeasures、パートを消すのは removePart です。削除はユーザーの確認を待ちます。',
    '直前の自分の編集を1段階戻すのは undoAiChange です。まとめて戻すボタンはユーザーが押します。MusicXMLは exportMusicXML です。',
@@ -199,7 +200,8 @@
      properties:{
       part:{type:'string'},
       measure:{type:'integer'},
-      phrase:{type:'string'}
+      phrase:{type:'string'},
+      overwrite:{type:'boolean'}
      },
      required:['phrase']
     }
