@@ -30,9 +30,13 @@
   function caretMarkup(score,selection,layout) {
     const range=rangeMarkup(score,selection?.range,layout);
     if(!selection?.caret)return range;
-    const {mi,index}=selection.caret,g=measureGeometry(score,mi,layout);if(!g)return '';
-    const span=C.eventSpans(score,mi)[index];if(!span)return '';
-    const x=g.notesStart+span.start/g.cap*g.usable,top=g.top;
+    const {mi,index}=selection.caret;
+    const staff=selection.activeStaff||1;
+    const view=staff===2&&C.isGrandStaff(score)?C.staffScore(score,2):score;
+    const editing=selection.editLowerVoice&&selection.voiceMeasure===mi?C.voiceScore(view,2):view;
+    const g=measureGeometry(score,mi,layout);if(!g)return '';
+    const span=C.eventSpans(editing,mi)[index];if(!span)return '';
+    const x=g.notesStart+span.start/g.cap*g.usable+(selection.voiceMeasure===mi?8:0),top=g.top+(staff===2?GRAND_GAP:0);
     return range+`<rect x="${x-18}" y="${top-32}" width="36" height="117" rx="5" fill="#2e79b8" opacity="0.12"/><line x1="${x-1}" x2="${x-1}" y1="${top-26}" y2="${top+72}" stroke="#2673ad" stroke-width="2.2" stroke-dasharray="4 3"/><path d="M ${x-7} ${top-31} h 12 l -6 9 Z" fill="#2673ad"/>`;
   }
   const selectedNodes=new WeakMap();
@@ -123,11 +127,17 @@
   }
   const PAGE={width:1080,perRow:3,staffX:100,staffContent:902,prefix:138,top:182,rowHeight:198};
   const MOBILE={width:560,perRow:1,staffX:18,staffContent:524,prefix:108,top:100,rowHeight:176};
+  const GRAND_GAP=96;
+  function layoutFor(score,layout){
+    if(!layout?.showGrand||!C.isGrandStaff(score)||layout.grandGap)return layout;
+    return {...layout,rowHeight:layout.rowHeight+GRAND_GAP,grandGap:GRAND_GAP,showGrand:true};
+  }
   function layoutPrefix(score,layout){
     return layout===MOBILE&&score.clef!=='percussion'?Math.max(layout.prefix,84+15*Math.abs(score.key)):layout.prefix;
   }
   function measureGeometry(score,mi,layout=PAGE) {
     if(mi<0||mi>=score.measures.length)return null;
+    layout=layoutFor(score,layout);
     const {perRow,staffX,staffContent,top:origin,rowHeight}=layout,prefix=layoutPrefix(score,layout);
     const row=Math.floor(mi/perRow), col=mi%perRow;
     const top=origin+row*rowHeight;
@@ -178,6 +188,7 @@
   }
   function hitTest(score,x,y,den=4,dots=0,drumPitch=null,layout=PAGE,{overwrite=false,onset,octaveShift=0}={}) {
     if(!Number.isFinite(x)||!Number.isFinite(y))return null;
+    layout=layoutFor(score,layout);
     const length=C.durationTicks(den,dots);
     const prefix=layoutPrefix(score,layout);
     const row=Math.floor((y-layout.top+40)/layout.rowHeight);
@@ -186,23 +197,30 @@
     if(row<0||col<0||col>=layout.perRow||mi>=score.measures.length)return null;
     {
       const g=measureGeometry(score,mi,layout);
-      if(x<g.x0||x>g.x1||y<g.top-40||y>g.top+103)return null;
+      const grand=!!layout.grandGap&&C.isGrandStaff(score);
+      const staff=grand&&y>=g.top+GRAND_GAP-24?2:1;
+      const top=g.top+(staff===2?GRAND_GAP:0);
+      const view=staff===2?C.staffScore(score,2):score;
+      if(x<g.x0||x>g.x1||y<top-40||y>top+103)return null;
       const raw=((x-g.notesStart)/g.usable)*g.cap;
-      const tick=overwrite&&onset!==undefined?onset:C.snapInputTick(score,mi,raw,den,dots);
-      const bottom=C.CLEFS[score.clef].bottom;
-      const n=Math.max(7,Math.min(69,bottom+Math.round((C.staffBounds(score,g.top).last-y)/6)));
-      const single=score.clef==='percussion'&&score.staffLines===1;
+      const tick=overwrite&&onset!==undefined?onset:C.snapInputTick(view,mi,raw,den,dots);
+      const bottom=C.CLEFS[view.clef].bottom;
+      const n=Math.max(7,Math.min(69,bottom+Math.round((C.staffBounds(view,top).last-y)/6)));
+      const single=view.clef==='percussion'&&(view.staffLines||5)===1;
       const octave=single?(drumPitch?.octave??4):Math.max(0,Math.min(8,Math.floor(n/7)-1+octaveShift)),step=single?(drumPitch?.step||'C'):C.STEPS[n%7];
-      return {mi,tick,x:g.notesStart+tick/g.cap*g.usable,
-        y:diatonicY({step,octave},g.top,score.clef,score.staffLines||5),top:g.top,step,octave,valid:tick+length>g.cap?overwrite||!C.eventSpans(score,mi,false).some(s=>s.event.type==='note'&&s.end>tick):C.canPlaceAt(score,mi,tick,den,dots,{overwrite})};
+      return {mi,tick,staff,x:g.notesStart+tick/g.cap*g.usable,
+        y:diatonicY({step,octave},top,view.clef,view.staffLines||5),top,step,octave,valid:tick+length>g.cap?overwrite||!C.eventSpans(view,mi,false).some(s=>s.event.type==='note'&&s.end>tick):C.canPlaceAt(view,mi,tick,den,dots,{overwrite})};
     }
     return null;
   }
-  function cursorPreview(score,layout,mi,tick,pitch,den,dots,overwrite){
+  function cursorPreview(score,layout,mi,tick,pitch,den,dots,overwrite,staff=1){
+    layout=layoutFor(score,layout);
+    const view=staff===2&&C.isGrandStaff(score)?C.staffScore(score,2):score;
     const g=measureGeometry(score,mi,layout);
     if(!g||tick>=g.cap)return null;
-    return {mi,tick,x:onsetX(g,tick),top:g.top,step:pitch.step,octave:pitch.octave,
-      y:diatonicY(pitch,g.top,score.clef,score.staffLines||5),valid:C.canPlaceAt(score,mi,tick,den,dots,{overwrite})};
+    const top=g.top+(staff===2&&layout.grandGap?GRAND_GAP:0);
+    return {mi,tick,staff,x:onsetX(g,tick),top,step:pitch.step,octave:pitch.octave,
+      y:diatonicY(pitch,top,view.clef,view.staffLines||5),valid:C.canPlaceAt(view,mi,tick,den,dots,{overwrite})};
   }
   function durationName(den,dots=0,kind='note') {
     const label=({1:'全',2:'2分',4:'4分',8:'8分',16:'16分',32:'32分',64:'64分'})[den]||String(den)+'分';
@@ -263,7 +281,13 @@
     const lanes={above:[],below:[]};
     const segments=C.directionSegments(score,mi);
     const marks=[...segments.filter(segment=>segment.endTick>0||segment.mark.key==='slur'),...(score.measures[mi].directions||[]).filter(mark=>!C.isRangeDirection(mark.key))
-      .map(mark=>({mark,from:mi,startTick:mark.tick}))].sort((a,b)=>a.startTick-b.startTick);
+      .map(mark=>({mark,from:mi,startTick:mark.tick}))];
+    if(!score.sharedStaff)for(const cue of C.divisiCues(score,1)){
+      if(cue.mi!==mi)continue;
+      if((score.measures[mi].directions||[]).some(mark=>mark.text===cue.text&&mark.tick===cue.tick))continue;
+      marks.push({mark:{key:'custom',tick:cue.tick,text:cue.text},from:mi,startTick:cue.tick});
+    }
+    marks.sort((a,b)=>a.startTick-b.startTick);
     return marks.map(segment=>{
       const {mark,first,last,startTick,endTick}=segment;
       const preset=C.Symbols.byKey[mark.key],text=mark.text||preset.label;
@@ -360,7 +384,7 @@
         if(!g.engraved&&!g.voiceOnly)out.push(`<rect data-measure-zone="1" data-measure="${mi}" x="${x0}" y="${top-40}" width="${barWidth}" height="143" fill="transparent"/>`);
         if(!g.voiceOnly&&(!g.engraved||g.number))out.push(`<text x="${x0+8}" y="${top-16}" fill="${pale}" font-family="sans-serif" font-size="12">${mi+1}</text>`);
         const cap=C.barTicks(score,mi),all=C.eventsWithRests(m,C.timeAt(score,mi)),state=new Map();
-        const fullRest=!m.events.length||(m.events.length===1&&m.events[0].type==='rest'&&C.usedTicks(m)===cap);
+        const fullRest=!m.events.some(event=>event.space)&&(!m.events.length||(m.events.length===1&&m.events[0].type==='rest'&&C.usedTicks(m)===cap));
         const restCenter=(x0+x1)/2;
         if(!g.voiceOnly&&(g.showMeter||!g.engraved&&mi%layout.perRow>0&&!C.sameTime(C.timeAt(score,mi),C.timeAt(score,mi-1))))
           out.push(meterGlyph(C.timeAt(score,mi),x0+16,top));
@@ -376,10 +400,10 @@
           const selected=selection&&(selection.ids?selection.ids.has(e.id):selection.eventId===e.id)&&eventIndex<m.events.length;
           const implicit=eventIndex>=m.events.length;
           if(e.type==='rest'){
-            if(!fullRest&&(!g.voiceOnly||!implicit))out.push(restGlyph(x,restTop,e.den,e.dots,implicit&&m.events.some(event=>event.type==='note')));
+            if(!e.space&&!fullRest&&(!g.voiceOnly||!implicit))out.push(restGlyph(x,restTop,e.den,e.dots,implicit&&m.events.some(event=>event.type==='note')));
           }
           else {
-            out.push(noteGlyph(e,x,top,score.clef,selected,state,score.key,beaming.stems.get(e.id),score));
+            out.push(noteGlyph(e,x,top,score.clef,selected,state,C.keyAt(score,mi),beaming.stems.get(e.id),score));
             const tie=C.tieFlags(score,mi,eventIndex);
             if(tie.start||tie.stop&&eventIndex===0){
               const nextX=eventIndex+1<m.events.length?onsetX(g,time+len):x1;
@@ -399,7 +423,7 @@
           const pitchYs=e.type==='note'?e.pitches.map(p=>diatonicY(p,top,score.clef,score.staffLines||5)):[];
           const hitX=fullRest&&eventIndex===0?restCenter-left:eventStart-left,hitWidth=left+right;
           const hitY=Math.min(top-39,...pitchYs.map(y=>y-12)),hitBottom=Math.max(top+89,...pitchYs.map(y=>y+12));
-          if(!g.engraved&&!g.voiceOnly)out.push(`<rect x="${hitX}" y="${hitY}" width="${hitWidth}" height="${hitBottom-hitY}" rx="5" fill="transparent" data-event-id="${implicit?'':esc(e.id)}" data-event-type="${e.type}" data-event-index="${eventIndex}"${e.tuplet?' data-tuplet-slot=""':''} data-implicit="${implicit?'1':'0'}" data-event-tick="${time}" data-measure="${mi}" aria-label="${fullRest?'全小節休符':esc(C.eventLabel(e))}"><title>${fullRest?'全小節休符':esc(C.eventLabel(e))}</title></rect>`);
+          if(!g.engraved&&!g.voiceOnly&&!e.space)out.push(`<rect x="${hitX}" y="${hitY}" width="${hitWidth}" height="${hitBottom-hitY}" rx="5" fill="transparent" data-event-id="${implicit?'':esc(e.id)}" data-event-type="${e.type}" data-event-index="${eventIndex}"${e.tuplet?' data-tuplet-slot=""':''} data-implicit="${implicit?'1':'0'}" data-event-tick="${time}" data-measure="${mi}" data-staff="${g.staff||1}" aria-label="${fullRest?'全小節休符':esc(C.eventLabel(e))}"><title>${fullRest?'全小節休符':esc(C.eventLabel(e))}</title></rect>`);
           time+=len;
         }
         out.push(beaming.markup,tupletMarkup(brackets,g));
@@ -619,7 +643,16 @@
       return parts.length>5?{...bar,preferred:Math.max(108,bar.minimum+bar.ticks.length*4)}:bar;
     });
     const sections=staffSections(parts),breaks=new Set(sections.slice(1).map(section=>section.start));
-    return systemBreaks(bars,available).map(({start,end})=>{
+    const forced=parts[0].measures.map(bar=>bar.breakBefore||'');
+    const segments=[];
+    let from=0;
+    for(let index=1;index<=bars.length;index++){
+      if(index===bars.length||forced[index]){
+        for(const system of systemBreaks(bars.slice(from,index),available))segments.push({start:system.start+from,end:system.end+from,page:forced[from]==='page'});
+        from=index;
+      }
+    }
+    return segments.map(({start,end,page})=>{
       const row=bars.slice(start,end);
       const minimum=row.reduce((sum,bar)=>sum+bar.minimum,0);
       const preferred=row.reduce((sum,bar)=>sum+bar.preferred,0);
@@ -655,14 +688,16 @@
         height=top+lower;
         return top;
       });
-      return {start,end,staffX,staffTops,staffExtents,measures,height:height+18,right:x,mode,margin,sections};
+      return {start,end,page,staffX,staffTops,staffExtents,measures,height:height+18,right:x,mode,margin,sections};
     });
   }
 
-  function engravedSystem(parts,system,y,interactive){
+  function engravedSystem(descriptors,system,y,interactive,collapseRests=false,originals=[]){
+    const parts=descriptors.map(row=>row.part);
     const {staffX,right,staffTops,staffExtents,measures,mode,margin,sections}=system;
     const out=[`<g data-engraved-system="${system.start+1}" transform="translate(0 ${y})">`];
-    for(const [index,part] of parts.entries()){
+    for(const [index,desc] of descriptors.entries()){
+      const part=desc.part;
       const top=staffTops[index],bounds=C.staffBounds(part,top);
       out.push(`<g data-engraved-part="${index}">`);
       const name=staffName(part,mode,system.start);
@@ -676,19 +711,34 @@
       const timeX=staffX+62+(part.clef==='percussion'?0:Math.abs(part.key)*15);
       out.push(meterGlyph(C.timeAt(part,system.start),timeX,top));
       for(const measure of measures){
+        const restRun=collapseRests?multiRestAt(part,measure.mi):null;
+        if(restRun&&measure.mi!==restRun[0])continue;
         if(part.measures[measure.mi]){
+          if(restRun){
+            const last=measures.find(item=>item.mi===restRun[1])||measure;
+            const count=restRun[1]-restRun[0]+1;
+            out.push(restGlyph((measure.x0+last.x1)/2,top,1,0,false));
+            out.push(`<text x="${(measure.x0+last.x1)/2}" y="${top-8}" text-anchor="middle" font-family="serif" font-size="16" fill="${black}">${count}</text>`);
+            out.push(`<path d="M ${last.x1} ${bounds.first} V ${bounds.last}" stroke="${black}" stroke-width="1.7"/>`);
+            continue;
+          }
           out.push(measureMarkup(part,measure.mi,null,PAGE,{...measure,top,engraved:true,deferDirections:interactive,showVolta:index===0,number:index===0&&measure.mi===system.start}));
           if(interactive){
             const cap=C.barTicks(part,measure.mi),grid=[...new Map([...measure.columns,[cap,measure.x1]])].map(pair=>pair.join(':')).join(',');
-            const spans=C.eventSpans(part,measure.mi);
+            const secondary=desc.secondary!=null&&part.measures[measure.mi].voice2?.length;
+            const targets=secondary?[[desc.source,true],[desc.secondary,false]]:[[desc.source,false]];
             const {upper,lower}=staffExtents[index];
-            const hitTop=top+upper-4;
-            const hitBottom=top+lower+4;
-            spans.forEach((span,i)=>{
-              const startX=i===0?measure.x0:(onsetX(measure,spans[i-1].start)+onsetX(measure,span.start))/2;
-              const endX=i===spans.length-1?measure.x1:(onsetX(measure,span.start)+onsetX(measure,spans[i+1].start))/2;
-              out.push(`<rect data-engraved-hit="${measure.mi}" data-slot="${i}" data-top="${top}" data-grid="${grid}" x="${startX}" y="${hitTop}" width="${endX-startX}" height="${hitBottom-hitTop}" fill="transparent"/>`);
-            });
+            const hitTop=top+upper-4,hitBottom=top+lower+4,mid=(hitTop+hitBottom)/2;
+            for(const [source,upperHalf] of targets){
+              const hitPart=originals[source]||part;
+              const spans=C.eventSpans(hitPart,measure.mi);
+              const y0=secondary&&!upperHalf?mid:hitTop,y1=secondary&&upperHalf?mid:hitBottom;
+              spans.forEach((span,i)=>{
+                const startX=i===0?measure.x0:(onsetX(measure,spans[i-1].start)+onsetX(measure,span.start))/2;
+                const endX=i===spans.length-1?measure.x1:(onsetX(measure,span.start)+onsetX(measure,spans[i+1].start))/2;
+                out.push(`<rect data-engraved-part="${source}" data-engraved-hit="${measure.mi}" data-slot="${i}" data-top="${top}" data-grid="${grid}" x="${startX}" y="${y0}" width="${Math.max(4,endX-startX)}" height="${Math.max(8,y1-y0)}" fill="transparent"/>`);
+              });
+            }
             const geometry={...measure,top,engraved:true,interactive:true};
             out.push(directionMarkup(part,measure.mi,geometry,tupletBrackets(part,measure.mi,top)));
           }
@@ -809,27 +859,40 @@
     }
     return draw(text,align==='auto'?(style==='copyright'?'left':style==='custom'?'center':'right'):align);
   }
-  function printPages(parts,edition={},namespace='print'){
+  function printPages(parts,edition={},namespace='print',partUnions=[]){
     const front=frontMatter(parts,edition);
     const include=edition.footerScope==='all';
-    const score=engrave(parts,{paginate:true,namespace,edition,pageOffset:include?front.length:0});
+    const score=engrave(parts,{paginate:true,namespace,edition,pageOffset:include?front.length:0,partUnions});
     if(!include)return [...front,...score];
     const numbered=front.map((page,index)=>page.replace(/<\/svg>$/,
       footerMarkup(parts[0],edition,(edition.pageStart||1)+index,front.length+score.length,PRINT_HEIGHT,68)+'</svg>'));
     return [...numbered,...score];
   }
-  function engrave(parts,{paginate=false,namespace='engraved',edition={},pageOffset=0,firstPageOnly=false,interactive=false}={}){
+  function multiRestAt(part,mi){
+    const empty=index=>{
+      const bar=part.measures[index];
+      if(!bar)return false;
+      const notes=[...(bar.events||[]),...(bar.voice2||[]),...(bar.staff2||[]),...(bar.staff2Voice||[])];
+      return !notes.some(event=>event.type==='note')&&!bar.directions?.length&&!bar.repeatStart&&!bar.repeatEnd&&!bar.volta&&!bar.pickup&&!bar.breakBefore;
+    };
+    if(!empty(mi)||mi&&empty(mi-1))return null;
+    let end=mi;while(part.measures[end+1]&&empty(end+1))end++;
+    return end>mi?[mi,end]:null;
+  }
+  function engrave(parts,{paginate=false,namespace='engraved',edition={},pageOffset=0,firstPageOnly=false,interactive=false,partUnions=[]}={}){
     for(const part of parts){
       const errors=C.validateScore(part);if(errors.length)throw Error(errors[0]);
     }
-    const systems=engravingLayout(parts,edition),pages=[],part=parts[0];
+    const descriptors=partUnions.length?C.displayParts(parts,partUnions):parts.map((part,source)=>({part,source,secondary:null}));
+    const shown=descriptors.map(row=>row.part);
+    const systems=engravingLayout(shown,edition),pages=[],part=shown[0];
     const title=titleBlock(part,edition);
     const composerLines=[part.composer,edition.composerAlt].filter(Boolean).flatMap(line=>wrapText(line,18,520));
     const firstStart=title.end+Math.max(25,composerLines.length*23);
     let page=[],y=firstStart;
     for(const system of systems){
-      if(paginate&&page.length&&y+system.height>PRINT_HEIGHT-52){pages.push({systems:page,height:y+20});page=[];y=60;}
-      page.push(firstPageOnly&&pages.length?'':engravedSystem(parts,system,y,interactive));y+=system.height;
+      if(paginate&&page.length&&(y+system.height>PRINT_HEIGHT-52||system.page)){pages.push({systems:page,height:y+20});page=[];y=60;}
+      page.push(firstPageOnly&&pages.length?'':engravedSystem(descriptors,system,y,interactive,shown.length===1&&!interactive,parts));y+=system.height;
     }
     pages.push({systems:page,height:y+24});
     return (firstPageOnly?pages.slice(0,1):pages).map(({systems,height},index)=>{
@@ -877,19 +940,22 @@
   }
   function render(score,selection,layout=PAGE,measure=null,namespace='score') {
     const invalid=C.validateScore(score);if(invalid.length) throw new Error(invalid[0]);
+    if(selection&&Object.hasOwn(selection,'activeStaff')&&C.isGrandStaff(score))layout={...layout,showGrand:true};
+    layout=layoutFor(score,layout);
+    const grand=!!layout.grandGap;
     const {width,perRow,staffX:start,staffContent:content}=layout,cols=score.measures.length,rows=Math.ceil(cols/perRow);
     const compact=layout===MOBILE,height=compact?layout.top+(rows-1)*layout.rowHeight+120:195+rows*198+94;
     const single=measure!==null,firstRow=single?Math.floor(measure/perRow):0,lastRow=single?firstRow+1:rows;
     const top=layout.top+firstRow*layout.rowHeight;
     let origin=0,viewHeight=height;
     if(single){
-      const {events,voice2=[]}=score.measures[measure];
-      const pitches=[...events,...voice2].flatMap(event=>event.pitches);
+      const bar=score.measures[measure];
+      const pitches=[...bar.events,...(bar.voice2||[]),...(bar.staff2||[]),...(bar.staff2Voice||[])].flatMap(event=>event.pitches);
       const ys=pitches.map(p=>diatonicY(p,top,score.clef,score.staffLines||5));
       const directions=directionLanes(score,measure,measureGeometry(score,measure,layout));
       const lanes=placement=>Math.max(0,...directions.filter(mark=>mark.preset.placement===placement).map(mark=>mark.lane+1));
       origin=Math.min(top-(score.measures[measure].volta?83:64),...ys.map(y=>y-82))-22*lanes('above');
-      viewHeight=Math.max(top+116,...ys.map(y=>y+82))+22*lanes('below')-origin;
+      viewHeight=Math.max(top+116+(grand?GRAND_GAP:0),...ys.map(y=>y+82))+22*lanes('below')-origin;
     }
     const label=single?`${measure+1}小節目`:`${esc(score.title)} 楽譜`;
     const out=[`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 ${origin} ${width} ${viewHeight}" role="img" aria-label="${label}">`,`<rect y="${origin}" width="${width}" height="${viewHeight}" fill="white"/>`,glyphDefinitions('score'),`<g id="kanade-caret-layer" pointer-events="none">${caretMarkup(score,selection,layout)}</g>`];
@@ -897,18 +963,32 @@
       `<text x="${width/2}" y="${compact?34:72}" text-anchor="middle" fill="${black}" font-size="${compact?24:31}" font-weight="700" font-family="'Noto Sans JP',sans-serif">${esc(score.title)}</text>`,
       `<text x="${compact?width-20:985}" y="${compact?60:104}" text-anchor="end" fill="${black}" font-size="16" font-family="sans-serif">${esc(score.composer)}</text>`,
       `<text x="${compact?20:78}" y="${compact?60:128}" fill="${black}" font-size="15" font-family="sans-serif">♩ = ${score.tempo}</text>`);
-    for(let row=firstRow;row<lastRow;row++) {
-      const top=layout.top+row*layout.rowHeight;
-      const bounds=C.staffBounds(score,top);
-      for(let ln=0;ln<bounds.lines;ln++) out.push(`<line class="staff-line" x1="${start}" y1="${bounds.first+ln*12}" x2="${start+content}" y2="${bounds.first+ln*12}" stroke="${black}" stroke-width="1.4"/>`);
+    function drawStaff(top,staff,at){
+      const view=staff===2?C.staffScore(score,2):score;
+      const clef=layout.showGrand?C.clefAt(score,at,staff):score.clef;
+      const key=C.keyAt(score,at);
+      const bounds=C.staffBounds(view,top);
+      for(let ln=0;ln<bounds.lines;ln++) out.push(`<line class="staff-line" data-staff="${staff}" x1="${start}" y1="${bounds.first+ln*12}" x2="${start+content}" y2="${bounds.first+ln*12}" stroke="${black}" stroke-width="1.4"/>`);
       out.push(`<line x1="${start}" y1="${bounds.first-(bounds.lines===1?8:0)}" x2="${start}" y2="${bounds.last+(bounds.lines===1?8:0)}" stroke="${black}" stroke-width="2"/>`);
-      out.push(clefGlyph(start+16,top,score.clef,bounds.lines));
-      if(score.key&&score.clef!=='percussion') out.push(keyGlyphs(score.key,top,score.clef,bounds.lines,start+60));
-      const timeX=score.key&&score.clef!=='percussion'?start+66+Math.abs(score.key)*15:start+72;
-      out.push(meterGlyph(C.timeAt(score,single?measure:row*perRow),timeX,top));
+      out.push(clefGlyph(start+16,top,clef,bounds.lines));
+      if(key&&clef!=='percussion') out.push(keyGlyphs(key,top,clef,bounds.lines,start+60));
+      const timeX=key&&clef!=='percussion'?start+66+Math.abs(key)*15:start+72;
+      out.push(meterGlyph(C.timeAt(score,at),timeX,top));
+    }
+    for(let row=firstRow;row<lastRow;row++) {
+      const rowStart=single?measure:row*perRow;
+      const top=layout.top+row*layout.rowHeight;
+      drawStaff(top,1,rowStart);
+      if(grand)drawStaff(top+GRAND_GAP,2,rowStart);
       for(let k=0;k<perRow;k++) {
         const mi=row*perRow+k;if(mi>=cols) break;
-        if(!single||measure===mi)out.push(measureMarkup(score,mi,selection,layout));
+        if(!single||measure===mi){
+          out.push(measureMarkup(score,mi,selection,layout));
+          if(grand){
+            const g=measureGeometry(score,mi,layout);
+            out.push(measureMarkup(C.staffScore(score,2),mi,selection?.activeStaff===2?selection:null,layout,{...g,top:g.top+GRAND_GAP,staff:2}));
+          }
+        }
       }
     }
     out.push(`<g id="kanade-ghost-layer" pointer-events="none" aria-hidden="true"></g>`,'</svg>');

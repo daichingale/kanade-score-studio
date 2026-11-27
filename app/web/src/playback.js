@@ -68,6 +68,7 @@
       voices.push(track);
       if(track.measures.some(bar=>bar.voice2?.length))voices.push(C.voiceScore(track,2));
       if(C.isGrandStaff(track)&&track.measures.some(bar=>bar.staff2?.length))voices.push(C.staffScore(track,2));
+      if(C.isGrandStaff(track)&&track.measures.some(bar=>bar.staff2Voice?.length))voices.push(C.voiceScore(C.staffScore(track,2),2));
       for(const score of voices){
         let previous=null;
         for(const [mi,bar] of score.measures.entries()){
@@ -81,7 +82,14 @@
                 const releases=marks.filter(mark=>Object.hasOwn(gates,mark)).map(mark=>gates[mark]);
                 const gate=ties.start?1:Math.min(...(releases.length?releases:[.96]));
                 const attack=marks.includes('marcato')?1.35:marks.includes('accent')?1.23:1;
-                previous={start:onset,end:onset+ticks*gate,part:track.id,instrument,offset,pitches:note.pitches,
+                const graces=note.graces||[];
+                const stolen=graces.length?Math.min(ticks*.3,graces.length*C.TPQ/12):0;
+                graces.forEach((pitch,graceIndex)=>{
+                  const slice=stolen/graces.length;
+                  events.push({start:onset+graceIndex*slice,end:onset+(graceIndex+1)*slice,part:track.id,instrument,offset,
+                    pitches:[pitch],emphasis:attack,points,grace:true});
+                });
+                previous={start:onset+stolen,end:onset+ticks*gate,part:track.id,instrument,offset,pitches:note.pitches,
                   emphasis:attack*(punch.get(writtenTick)||1),points};
                 events.push(previous);soundingTracks.add(track.id);
               }
@@ -93,13 +101,44 @@
       }
     }
     events.sort((a,b)=>a.start-b.start);
-    return {events,samples,offsets,soundingTracks:soundingTracks.size,trackIds:new Set(parts.map(part=>part.id)),tempo:reference.tempo};
+    const tempi=[{tick:0,tempo:reference.tempo}];
+    reference.measures.forEach((bar,mi)=>{if(Number.isInteger(bar.tempo))tempi.push({tick:offsets[mi],tempo:bar.tempo});});
+    return {events,samples,offsets,soundingTracks:soundingTracks.size,trackIds:new Set(parts.map(part=>part.id)),tempo:reference.tempo,tempi};
+  }
+  function secondsAt(tick,tempi,rate){
+    let time=0,prev=0,tempo=tempi[0]?.tempo||100;
+    for(const change of tempi){
+      if(change.tick>=tick)break;
+      time+=(change.tick-prev)*60/(tempo*rate*C.TPQ);
+      prev=change.tick;tempo=change.tempo;
+    }
+    return time+(tick-prev)*60/(tempo*rate*C.TPQ);
+  }
+  function tickAt(seconds,tempi,rate,limit){
+    let time=0,prev=0,tempo=tempi[0]?.tempo||100;
+    for(const change of tempi){
+      const span=(change.tick-prev)*60/(tempo*rate*C.TPQ);
+      if(time+span>seconds)return prev+(seconds-time)/(60/(tempo*rate*C.TPQ));
+      time+=span;prev=change.tick;tempo=change.tempo;
+    }
+    return Math.min(limit,prev+(seconds-time)/(60/(tempo*rate*C.TPQ)));
   }
 
   function region(compiled,{from=0,to=compiled.offsets.at(-1),rate=1,measureMap,revision=0}={}){
     const total=compiled.offsets.at(-1);
     const start=min(0,from,total),end=min(start,to,total);
+    const scaled=(compiled.tempi||[{tick:0,tempo:compiled.tempo}]).map(item=>({...item}));
     const secondsPerTick=60/(compiled.tempo*min(.45,rate,1.6)*C.TPQ);
+    if(scaled.length>1){
+      const events=compiled.events.flatMap(event=>{
+        if(event.start>=end||event.end<=start)return [];
+        const a=Math.max(start,event.start),b=Math.min(end,event.end);
+        const time=secondsAt(a,scaled,min(.45,rate,1.6))-secondsAt(start,scaled,min(.45,rate,1.6));
+        const duration=secondsAt(b,scaled,min(.45,rate,1.6))-secondsAt(a,scaled,min(.45,rate,1.6));
+        return [{...event,time,duration,curve:[{time:0,level:levelAt(event.points,a)},{time:duration,level:levelAt(event.points,b)}]}];
+      });
+      return {...compiled,events,secondsPerTick,measureMap,revision,start,end,duration:secondsAt(end,scaled,min(.45,rate,1.6))-secondsAt(start,scaled,min(.45,rate,1.6)),tempi:scaled,rate:min(.45,rate,1.6)};
+    }
     const events=compiled.events.flatMap(event=>{
       if(event.start>=end||event.end<=start)return [];
       const a=Math.max(start,event.start),b=Math.min(end,event.end);
@@ -113,7 +152,9 @@
     return {...compiled,events,secondsPerTick,measureMap,revision,start,end,duration:(end-start)*secondsPerTick};
   }
   function position(plan,elapsed){
-    const absolute=min(plan.start,plan.start+Math.max(elapsed,0)/plan.secondsPerTick,Math.max(plan.start,plan.end-.000001));
+    const absolute=plan.tempi?.length>1
+      ?min(plan.start,tickAt(secondsAt(plan.start,plan.tempi,plan.rate)+Math.max(elapsed,0),plan.tempi,plan.rate,plan.end),Math.max(plan.start,plan.end-.000001))
+      :min(plan.start,plan.start+Math.max(elapsed,0)/plan.secondsPerTick,Math.max(plan.start,plan.end-.000001));
     const {mi,tick}=C.locateTick(plan.offsets,absolute);
     return {measure:plan.measureMap?.[mi]??mi,tick,absolute,revision:plan.revision,progress:min(0,elapsed/plan.duration,1)};
   }

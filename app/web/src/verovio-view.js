@@ -297,9 +297,10 @@
     hit.svg.append(group);
   }
   async function exportMarkup(parts){
-    const xml=root.KanadeExport.musicXMLScore(parts);
+    if(parts.partUnions?.length)return engrave(Mei.meiForParts(parts,parts.staffGroups,parts.partUnions).mei,'print');
+    const xml=root.KanadeExport.musicXMLScore(parts,parts.staffGroups||[]);
     try{return await engrave(xml,'print');}
-    catch{return engrave(Mei.meiForParts(parts).mei,'print');}
+    catch{return engrave(Mei.meiForParts(parts,parts.staffGroups,parts.partUnions).mei,'print');}
   }
   function playbackGrid(measureEl,score,mi){
     const box=readBox(measureEl);
