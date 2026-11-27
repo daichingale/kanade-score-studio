@@ -31,7 +31,7 @@
  }
   let score=C.createScore(), selected=null, activeMeasure=0, den=4, dots=0, alter='auto', octave=4, chordMode=false;
   let caret={mi:0,index:0},editMode='entry',lastPointer=null,previewStep='C',lastEnteredId=null;
-  let mobileDraft=null,mobileChord=null,mobileDragPitch=null,voiceScope=null;
+  let mobileDraft=null,mobileChord=null,mobileDragPitch=null,voiceScope=null,staffScope=null,activeStaff=1;
   let pointerOctaveShift=0,keyboardGhost=false,pendingTieId=null;
   let tupletEnabled=false,tupletNext=null;
   let tupletPreference={actual:3,normal:2,unit:8};
@@ -49,18 +49,53 @@
     const t=$('toast');t.textContent=message;t.style.background=err?'#a84b4b':'#253b52';t.classList.remove('hidden');
     clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.add('hidden'),3200);
   }
-  function canonicalPart(){return voiceScope?.part||score;}
+  function canonicalPart(){return staffScope?.part||voiceScope?.part||score;}
+  function displayPart(){return staffScope?.part||score;}
   function documentScore(){return ensemble||canonicalPart();}
   function endVoiceScope(){
     if(!voiceScope)return;
     score=voiceScope.part;voiceScope=null;
+    if(staffScope)score=C.staffScore(staffScope.part,activeStaff);
+  }
+  function endStaffScope(){
+    if(!staffScope)return;
+    score=staffScope.part;staffScope=null;activeStaff=1;
+  }
+  function setActiveStaff(staff,{keepCaret=true}={}){
+    const full=canonicalPart();
+    if(!C.isGrandStaff(full)||staff<=1){
+      if(staffScope){
+        const tick=keepCaret?C.eventSpans(score,caret.mi)[caret.index]?.start??0:0;
+        endStaffScope();
+        if(keepCaret){
+          const spans=C.eventSpans(score,caret.mi),index=spans.findIndex(span=>span.end>tick);
+          caret={mi:caret.mi,index:Math.max(0,index)};
+        }
+      }else activeStaff=1;
+      return;
+    }
+    if(voiceScope)endVoiceScope();
+    const tick=keepCaret?C.eventSpans(score,caret.mi)[caret.index]?.start??0:0;
+    staffScope={part:full};activeStaff=2;
+    score=C.staffScore(full,2);
+    if(keepCaret){
+      const spans=C.eventSpans(score,caret.mi),index=spans.findIndex(span=>span.end>tick);
+      caret={mi:caret.mi,index:Math.max(0,index)};selected=null;selectionRange=null;rangeAnchor=null;
+    }
+  }
+  function toggleActiveStaff(){
+    if(!C.isGrandStaff(canonicalPart())||rangeDirection||!$('scoreOverview').hidden)return;
+    setActiveStaff(activeStaff===1?2:1);
+    focusEntry(caret.mi,caret.index);focusScore();
+    $('statusText').textContent=activeStaff===1?'上段（ト音）を編集':'下段（ヘ音）を編集';
   }
   function setVoiceScope(mi){
-    const part=score,bar=part.measures[mi];
+    if(activeStaff===2)setActiveStaff(1,{keepCaret:false});
+    const part=canonicalPart(),bar=part.measures[mi];
     voiceScope={mi,part};
     const measures=part.measures.slice();
     measures[mi]={...bar,events:bar.voice2||[],voice2:bar.events};
-    score={...part,measures};
+    score={...part,measures};staffScope=null;activeStaff=1;
   }
   function toggleVoiceScope(){
     if(rangeDirection||!$('scoreOverview').hidden)return;
@@ -71,13 +106,14 @@
     focusEntry(mi,Math.max(0,index));focusScore();
   }
   function loadScore(next,index=0){
-    voiceScope=null;
-    ensemble=next.ensembleParts?next:null;
-    partIndex=ensemble?Math.min(index,next.ensembleParts.length):0;
-    score=ensemble?C.scoreParts(ensemble)[partIndex]:next;
+    voiceScope=null;staffScope=null;activeStaff=1;
+    const migrated=C.migrateDocument(next);
+    ensemble=migrated.ensembleParts?migrated:null;
+    partIndex=ensemble?Math.min(index,migrated.ensembleParts.length):0;
+    score=ensemble?C.scoreParts(ensemble)[partIndex]:migrated;
   }
   function snapshot(label=''){
-    return {score:canonicalPart(),ensemble,partIndex,selected:voiceScope?null:selected,activeMeasure,caret:voiceScope?{mi:caret.mi,index:0}:{...caret},selectionRange:voiceScope?null:selectionRange,rangeAnchor:voiceScope?null:rangeAnchor,label};
+    return {score:canonicalPart(),ensemble,partIndex,selected:voiceScope||staffScope&&activeStaff===2?null:selected,activeMeasure,caret:voiceScope?{mi:caret.mi,index:0}:{...caret},selectionRange:voiceScope?null:selectionRange,rangeAnchor:voiceScope?null:rangeAnchor,label,activeStaff};
   }
   function recordUndo(label){
     undo.push(snapshot(label));
@@ -210,18 +246,24 @@
   function commit(next,label,selectedId=selected,measureIndex=activeMeasure,caretAfter=null,rangeAfter=null,options={}) {
     if(window.KanadeCollab?.blocked)throw Error('同期の確認を先に完了してください');
     if(next===score)return;
-    const previousScore=documentScore(),scope=voiceScope;
+    const previousScore=documentScore(),scope=voiceScope,staff=staffScope,staffNumber=activeStaff;
     let editedPart=next;
     if(scope){
       const {mi,part}=scope,current=score.measures[mi],edited=next.measures[mi];
       if(options.document||next.measures.length!==score.measures.length||edited?.id!==current.id||
         next.measures.some((bar,index)=>index!==mi&&bar!==score.measures[index])||
-        edited.directions!==current.directions||edited.time!==current.time||edited.voice2!==current.voice2){
+        edited.directions!==current.directions||edited.time!==current.time||edited.voice2!==current.voice2||
+        edited.staff2!==current.staff2){
         throw Error('第2声部はこの小節内で編集できます。小節全体の操作は第1声部で行ってください。');
       }
       const measures=part.measures.slice(),bar={...part.measures[mi]};
       if(edited.events.length)bar.voice2=edited.events;else delete bar.voice2;
       measures[mi]=bar;editedPart={...next,measures};
+    }else if(staff&&staffNumber===2){
+      if(options.document)editedPart=next;
+      else editedPart=C.mergeStaff(staff.part,2,next);
+    }else if(C.isGrandStaff(next)&&staffNumber===1&&!options.document){
+      editedPart=C.mergeStaff(canonicalPart(),1,next);
     }
     let nextDocument=options.document||(ensemble?C.replaceScorePart(ensemble,partIndex,editedPart,options):editedPart);
     if(!options.document&&!previousScore.bassPart&&previousScore.measures.some(bar=>bar.repeatStart||bar.repeatEnd||bar.volta)&&
@@ -238,13 +280,16 @@
     const audition=sounding?.type==='note'&&(!before||JSON.stringify(before.pitches)!==JSON.stringify(sounding.pitches));
     // Core edits return a new score; retain the immutable previous version.
     recordUndo(label);
-    stopAudioForEdit();lastEnteredId=null;pendingTieId=null;keyboardGhost=false;selectionRange=rangeAfter?{...rangeAfter}:null;if(!selectionRange)rangeAnchor=null;loadScore(nextDocument,partIndex);if(scope)setVoiceScope(scope.mi);selected=selectedId;activeMeasure=Math.min(measureIndex,score.measures.length-1);
+    stopAudioForEdit();lastEnteredId=null;pendingTieId=null;keyboardGhost=false;selectionRange=rangeAfter?{...rangeAfter}:null;if(!selectionRange)rangeAnchor=null;loadScore(nextDocument,partIndex);
+    if(scope)setVoiceScope(scope.mi);
+    else if(staffNumber===2)setActiveStaff(2,{keepCaret:false});
+    selected=selectedId;activeMeasure=Math.min(measureIndex,score.measures.length-1);
     if(selectedId){const found=getSelected();if(found)caret={mi:found.mi,index:found.index};}
     else caret=caretAfter||{mi:activeMeasure,index:0};
     persist();render();revealCaret();$('statusText').textContent=label+' · 保存済み';
     onLocalChange?.(previousScore,documentScore());transport?.edit();
     if(detached)showToast('編集した箇所のシーンリンクを解除しました');
-    if(audition&&!(sound.playing&&transport?.isLoop()))sound.audition(sounding.pitches,C.soundName(score),C.soundingOffset(score)).catch(e=>showToast(e.message,true));
+    if(audition&&!(sound.playing&&transport?.isLoop()))sound.audition(sounding.pitches,C.soundName(canonicalPart()),C.soundingOffset(canonicalPart())).catch(e=>showToast(e.message,true));
   }
   function attempt(fn) {try {fn();}catch(e){
     render();const message=e instanceof Error?e.message:String(e);
@@ -254,7 +299,9 @@
     mobileDraft=null;mobileChord=null;tupletNext=null;
     target.push(snapshot());
     selectionRange=state.selectionRange||null;rangeAnchor=state.rangeAnchor||null;
-    lastEnteredId=null;pendingTieId=null;keyboardGhost=false;loadScore(state.ensemble||state.score,state.partIndex);selected=state.selected;activeMeasure=state.activeMeasure;caret=state.caret||{mi:activeMeasure,index:0};
+    lastEnteredId=null;pendingTieId=null;keyboardGhost=false;loadScore(state.ensemble||state.score,state.partIndex);
+    if(state.activeStaff===2)setActiveStaff(2,{keepCaret:false});
+    selected=state.selected;activeMeasure=state.activeMeasure;caret=state.caret||{mi:activeMeasure,index:0};
     stopAudioForEdit();persist();render();revealCaret();transport?.edit();
   }
   function undoAction(){if(window.KanadeCollab?.active)return window.KanadeCollab.undo();if(undo.length)restore(undo.pop(),redo);else showToast('元に戻せる操作がありません');}
@@ -761,7 +808,7 @@
     if(!$('ensembleDialog').open)return;
     renderRoster(parts);
   }
-  const hasMusic=part=>part.measures.some(bar=>bar.events.length||bar.voice2?.length||bar.directions?.length);
+  const hasMusic=part=>part.measures.some(bar=>bar.events.length||bar.voice2?.length||bar.staff2?.length||bar.directions?.length);
   const partToken=part=>part.measures[0].id;
   const lookupInstrument=I.profile;
   const writtenFifths=I.fifths;
@@ -791,7 +838,8 @@
     detail.hidden=!part;
     if(part){
       $('ensembleDetailName').textContent=instrumentDisplay(part.instrument);
-      const bars=part.measures.filter(bar=>bar.events.length||bar.voice2?.length||bar.directions?.length).length;
+      const bars=part.measures.filter(bar=>bar.events.length||bar.voice2?.length||bar.staff2?.length||bar.directions?.length).length;
+      syncGrandStaffControls();
       $('ensembleDetailInfo').textContent=bars?`${bars} 小節に入力あり`:'未入力';
       if($('ensembleName').dataset.part!==rosterPart||document.activeElement!==$('ensembleName')){
         $('ensembleName').value=instrumentDisplay(part.instrument);$('ensembleName').dataset.part=rosterPart;
@@ -885,8 +933,10 @@
         const {parts,index,part}=currentRoster();
         if(!part)return;
         const previousOffset=writtenFifths[part.transposition]||0;
-        parts[index]={...part,instrument:item.name,instrumentKey:item.key,customInstrumentName:false,clef:item.clef,staffLines:item.staffLines,
+        let changed={...part,instrument:item.name,instrumentKey:item.key,customInstrumentName:false,clef:item.clef,staffLines:item.staffLines,
           sound:item.sound,transposition:item.transposition,key:item.clef==='percussion'?0:newKey(part.key,item.fifths-previousOffset)};
+        changed=C.applyInstrumentStaves(changed,item.key);
+        parts[index]=changed;
         commitRoster(I.numberParts(parts,[index]),partIndex,catalogName(item)+'に変更');
       });
       if(hasMusic(part)){
@@ -913,8 +963,9 @@
     persist();onLocalChange?.(previous,next);transport?.edit();
     $('ensembleFeedback').textContent=label;
   }
-  const preservingRoster=doc=>!!ensemble||!!doc.bassPart||doc.instrument!=='ピアノ'||!!doc.instrumentKey||
-    !!doc.customInstrumentName||doc.clef!=='treble'||(doc.staffLines||5)!==5||!!C.soundingOffset(doc)||C.soundName(doc)!=='ピアノ'||hasMusic(doc);
+  const preservingRoster=doc=>!!ensemble||!!doc.bassPart||doc.instrument!=='ピアノ'||(doc.instrumentKey&&doc.instrumentKey!=='piano')||
+    !!doc.customInstrumentName||doc.clef!=='treble'||(doc.staffLines||5)!==5||!!C.soundingOffset(doc)||C.soundName(doc)!=='ピアノ'||hasMusic(doc)||
+    (!!doc.staves&&!C.isGrandStaff(doc));
   function addInstruments(entries,useEmptyFirst=false,selectAdded=false,presetName){
     const doc=documentScore(),preserving=!useEmptyFirst||preservingRoster(doc);
     const parts=preserving?C.scoreParts(doc):[];
@@ -926,11 +977,14 @@
       const profile=item?{instrument:item.name,instrumentKey:item.key,clef:item.clef,sound:item.sound,
         transposition:item.transposition,staffLines:item.staffLines}:entry;
       const first=!parts.length,fifths=writtenFifths[profile.transposition]||0;
-      parts.push({...C.createScore(),...profile,id:first?doc.id:C.uid(),
+      const {staves:seedStaves,...seed}=C.createScore();
+      let added={...seed,...profile,id:first?doc.id:C.uid(),
         key:profile.clef==='percussion'?0:newKey(doc.key,fifths-(writtenFifths[doc.transposition]||0)),
         title:doc.title,composer:doc.composer,time:doc.time,tempo:doc.tempo,...(doc.meterTail?{meterTail:doc.meterTail}:{}),
         measures:first?doc.measures:Array.from({length:measureCount},(_,mi)=>({id:C.uid(),events:[],
-          ...(doc.measures[mi]?.time?{time:doc.measures[mi].time}:{}),...A.repeatMarks(doc.measures[mi]||{})}))});
+          ...(doc.measures[mi]?.time?{time:doc.measures[mi].time}:{}),...A.repeatMarks(doc.measures[mi]||{})}))};
+      added=C.applyInstrumentStaves(added,profile.instrumentKey||item?.key);
+      parts.push(added);
     }
     const numbered=I.numberParts(parts,entries.map((_,index)=>firstAdded+index));
     const aligned=numbered.map(part=>({...part,measures:[...part.measures,
@@ -1736,15 +1790,17 @@
     if(mobileChord&&(mobileChord.score!==score||mobileChord.mi!==caret.mi||selectionRange||rangeDirection))mobileChord=null;
     if(mobileDraft&&(!mobile.matches||!isEntryMode()||mobileDraft.mi!==caret.mi||selectionRange||
       (renderedScore&&renderedScore!==score)))mobileDraft=null;
-    const selection={eventId:selected,caret,range:selectionRange,ids:selectionRange?new Set(selectedIds()):null,voiceMeasure:voiceScope?.mi};
+    const painted=displayPart();
+    const selection={eventId:selected,caret,range:selectionRange,ids:selectionRange?new Set(selectedIds()):null,voiceMeasure:voiceScope?.mi,activeStaff};
     const layout=viewport.layout(),host=$('scoreHost');
     const measure=mobile.matches?playbackDisplay??caret.mi:null;
     const previousVoice=host.dataset.voiceMeasure||'';
     host.dataset.voiceMeasure=voiceScope?String(voiceScope.mi):'';
+    host.dataset.activeStaff=String(activeStaff);
     const useVerovio=window.KanadeVerovio?.isEnabled()&&!voiceScope;
     if(useVerovio){
-      if(!host.querySelector('.verovio-pages')&&!host.querySelector('svg'))R.mount(host,score,selection,layout,measure);
-      window.KanadeVerovio.sync(host,score,selection);
+      if(!host.querySelector('.verovio-pages')&&!host.querySelector('svg'))R.mount(host,painted,selection,layout,measure);
+      window.KanadeVerovio.sync(host,painted,selection);
       renderedLayout=layout;renderedMeasure=measure;
     }else if(previousVoice!==host.dataset.voiceMeasure||layout!==renderedLayout||measure!==renderedMeasure||!renderedScore||(measure!==null&&renderedScore!==score)||host.dataset.renderer==='verovio'){
       if(host.dataset.renderer==='verovio')delete host.dataset.renderer;
@@ -1758,15 +1814,25 @@
     const voiceButton=$('voiceToggle');
     voiceButton.setAttribute('aria-pressed',String(!!voiceScope));
     voiceButton.textContent=voiceScope?`第2声部 · ${voiceScope.mi+1}小節`:canonicalPart().measures[caret.mi]?.voice2?.length?'第2声部を編集':'＋ 第2声部';
+    const staffButton=$('staffToggle');
+    if(staffButton){
+      const grand=C.isGrandStaff(canonicalPart());
+      staffButton.hidden=!grand;
+      staffButton.setAttribute('aria-pressed',String(activeStaff===2));
+      staffButton.textContent=activeStaff===2?'下段を編集中':'上段を編集中';
+    }
+    syncGrandStaffControls();
     $('titleInput').value=score.title;$('composerInput').value=score.composer;
     const time=C.timeAt(score,caret.mi);
     $('timeSelect').textContent='拍子 '+time.num+'/'+time.den;
     if(![...$('keySelect').options].some(option=>option.value===String(score.key))){
       $('keySelect').add(new Option(score.key>0?`♯ ${score.key}つ`:`♭ ${-score.key}つ`,String(score.key)));
     }
-    $('keySelect').value=String(score.key);$('clefSelect').value=score.clef;$('tempoInput').value=score.tempo;$('instrument').value=[...$('instrument').options].some(option=>option.value===C.soundName(score))?C.soundName(score):'その他';
-    $('keySelect').disabled=score.clef==='percussion';$('transposition').disabled=score.clef==='percussion';
-    $('partName').value=instrumentDisplay(score.instrument);$('staffLines').value=String(score.staffLines||5);$('transposition').value=score.transposition||'concert';$('notehead').value=score.notehead||'normal';
+    const part=canonicalPart();
+    $('keySelect').value=String(part.key);$('clefSelect').value=C.staffClef(part,activeStaff);$('tempoInput').value=part.tempo;$('instrument').value=[...$('instrument').options].some(option=>option.value===C.soundName(part))?C.soundName(part):'その他';
+    $('keySelect').disabled=part.clef==='percussion';$('transposition').disabled=part.clef==='percussion';
+    $('clefSelect').disabled=C.isGrandStaff(part);
+    $('partName').value=instrumentDisplay(part.instrument);$('staffLines').value=String(C.staffLinesOf(part,activeStaff)||5);$('transposition').value=part.transposition||'concert';$('notehead').value=part.notehead||'normal';
     $('measureCount').textContent=`${score.measures.length} 小節 · ${score.measures.reduce((n,m)=>n+m.events.length,0)} 音符/休符`;
     $('undoBtn').disabled=window.KanadeCollab?.active?!window.KanadeCollab.canUndo():!undo.length;$('redoBtn').disabled=window.KanadeCollab?.active?!window.KanadeCollab.canRedo():!redo.length;
     if(mobile.matches){
@@ -2121,6 +2187,8 @@
     ['小節番号へ移動','go to bar measure jump 小節ジャンプ',openMeasureJump,'Alt+G'],
     ['上のパートへ','previous staff part',()=>moveOverviewPart(-1),'Alt+↑'],
     ['下のパートへ','next staff part',()=>moveOverviewPart(1),'Alt+↓'],
+    ['大譜表の上下段を切替','grand staff upper lower toggle',()=>attempt(toggleActiveStaff),'\\'],
+    ['大譜表にする / 1段に戻す','grand staff convert',()=>attempt(toggleGrandStaff),''],
     ['次の小節へ','next measure shosetsu',()=>moveMeasure(1),'Ctrl+→'],
     ['前の小節へ','previous measure shosetsu',()=>moveMeasure(-1),'Ctrl+←'],
     ['楽譜の先頭へ','first beginning gakufu',()=>focusEntry(0,0),'Ctrl+Home'],
@@ -2317,8 +2385,9 @@
   function inputPosition(point) {
     if(!point)return null;
     const engraved=$('scoreHost').dataset.renderer==='verovio'&&window.KanadeVerovio?.hitTest;
+    const target=displayPart();
     const hit=engraved
-      ?window.KanadeVerovio.hitTest($('scoreHost'),point,score,den,dots,{drum:{step:previewStep,octave},octaveShift:pointerOctaveShift,overwrite:isOverwriteEntry(),onset:point.onset})
+      ?window.KanadeVerovio.hitTest($('scoreHost'),point,target,den,dots,{drum:{step:previewStep,octave},octaveShift:pointerOctaveShift,overwrite:isOverwriteEntry(),onset:point.onset})
       :R.hitTest(score,point.x,point.y,den,dots,{step:previewStep,octave},viewport.layout(),{overwrite:isOverwriteEntry(),onset:point.onset,octaveShift:pointerOctaveShift});
     const pending=nextTupletSlot();
     return hit&&pending?{...hit,mi:pending.mi,tick:pending.tick}:hit;
@@ -2350,14 +2419,14 @@
     if(host.dataset.renderer==='verovio'&&window.KanadeVerovio?.paintGhost){
       let ghost=null;
       if(mobile.matches&&mobileDraft&&editMode==='entry'&&!selectionRange){
-        ghost=window.KanadeVerovio.ghostAt(host,score,mobileDraft,den,dots,isOverwriteEntry());
+        ghost=window.KanadeVerovio.ghostAt(host,displayPart(),{...mobileDraft,staff:activeStaff},den,dots,isOverwriteEntry());
       }else if(mobile.matches&&editMode==='entry'&&!selectionRange&&!rangeDirection&&!host.classList.contains('pitch-dragging')&&lastPointer){
         ghost=inputPosition(lastPointer);
       }else if(!mobile.matches&&editMode==='entry'&&!selectionRange&&!rangeDirection&&!host.classList.contains('pitch-dragging')){
         if(lastPointer)ghost=inputPosition(lastPointer);
         else if(keyboardGhost){
           const overwrite=isOverwriteEntry(),cursor=inputCursor(overwrite,false),cap=C.barTicks(score,cursor.mi);
-          ghost=window.KanadeVerovio.ghostAt(host,score,{mi:cursor.mi+Number(cursor.tick===cap),tick:cursor.tick%cap,step:previewStep,octave},den,dots,overwrite);
+          ghost=window.KanadeVerovio.ghostAt(host,displayPart(),{mi:cursor.mi+Number(cursor.tick===cap),tick:cursor.tick%cap,step:previewStep,octave,staff:activeStaff},den,dots,overwrite);
         }
       }
       host.classList.toggle('placing',!!ghost);
@@ -2407,6 +2476,7 @@
   function placeNoteAt(hit,fromKeyboard=false) {
     if(!hit)return;
     attempt(()=>{
+      if(hit.staff&&C.isGrandStaff(canonicalPart())&&hit.staff!==activeStaff)setActiveStaff(hit.staff,{keepCaret:false});
       const pitch={step:hit.step,alter:alter==='auto'?C.keyAlter(hit.step,score.key):Number(alter),octave:hit.octave};
       const event=C.makeNote(pitch,den,dots);
       if(chordMode) {
@@ -2423,6 +2493,41 @@
       if(fromKeyboard){lastPointer=null;pointerOctaveShift=0;}
       commitInput(result,'五線に'+R.durationName(den,dots)+'を入力');
     });
+  }
+  function syncGrandStaffControls(){
+    const part=canonicalPart();
+    const button=$('grandStaffToggle'),groupBtn=$('ensembleGroup'),ungroupBtn=$('ensembleUngroup');
+    if(button){
+      const can=C.prefersGrandStaff(part.instrumentKey||lookupInstrument(part)?.key)||C.isGrandStaff(part);
+      button.hidden=!can;
+      button.textContent=C.isGrandStaff(part)?'1段に戻す':'大譜表にする';
+      button.setAttribute('aria-pressed',String(C.isGrandStaff(part)));
+    }
+    if(groupBtn)groupBtn.hidden=!ensemble;
+    if(ungroupBtn)ungroupBtn.hidden=!ensemble||!(documentScore().staffGroups||[]).length;
+  }
+  function toggleGrandStaff(){
+    const part=canonicalPart();
+    const next=C.setGrandStaff(part,!C.isGrandStaff(part));
+    endVoiceScope();endStaffScope();
+    commit(next,C.isGrandStaff(next)?'大譜表にした':'1段に戻した');
+  }
+  function groupSelectedParts(symbol='bracket'){
+    const parts=C.scoreParts(documentScore());
+    if(parts.length<2)throw Error('まとめるパートが足りません');
+    const index=Math.max(0,parts.findIndex(part=>partToken(part)===rosterPart));
+    const end=Math.min(parts.length-1,index+1);
+    const next=C.groupParts(documentScore(),index,end,symbol);
+    saveEnsemble(next,partIndex,symbol==='brace'?'中括弧でまとめました':'括弧でまとめました');
+  }
+  function ungroupSelectedParts(){
+    const groups=documentScore().staffGroups||[];
+    if(!groups.length)throw Error('まとめた括弧がありません');
+    const parts=C.scoreParts(documentScore());
+    const index=Math.max(0,parts.findIndex(part=>partToken(part)===rosterPart));
+    const group=groups.find(item=>item.start<=index&&index<=item.end)||groups[0];
+    const next=C.ungroupParts(documentScore(),group.start,group.end);
+    saveEnsemble(next,partIndex,'括弧を外しました');
   }
   function updateTupletButton(){
     const {actual,unit}=tupletPreference;
@@ -2802,7 +2907,7 @@
       $('exportMenu').classList.add('hidden');$('exportBtn').setAttribute('aria-expanded','false');
       if(kind==='wav'||kind==='mp3'){exportAudio(kind);return;}
       if(kind==='midi') download(window.KanadeMIDIExport.encode(engravingParts()),baseName()+'.mid','audio/midi');
-      else if(kind==='musicxml') download(Ex.musicXMLScore(engravingParts()),baseName()+'.musicxml','application/vnd.recordare.musicxml+xml;charset=utf-8');
+      else if(kind==='musicxml') download(Ex.musicXMLScore(engravingParts(),editionDocument().staffGroups||[]),baseName()+'.musicxml','application/vnd.recordare.musicxml+xml;charset=utf-8');
       else if(kind==='svg'){
         if(window.KanadeVerovio?.isEnabled()){
           window.KanadeVerovio.exportMarkup(engravingParts()).then(result=>{
@@ -3276,6 +3381,10 @@
   function setupEvents() {
     setupFileTools();
     $('voiceToggle').onclick=toggleVoiceScope;
+    $('staffToggle')?.addEventListener('click',()=>attempt(toggleActiveStaff));
+    $('grandStaffToggle')?.addEventListener('click',()=>attempt(toggleGrandStaff));
+    $('ensembleGroup')?.addEventListener('click',()=>changeEnsemble(()=>groupSelectedParts('bracket')));
+    $('ensembleUngroup')?.addEventListener('click',()=>changeEnsemble(ungroupSelectedParts));
     $('instrumentLanguage').value=instrumentLanguage;
     $('instrumentLanguage').onchange=event=>{
       instrumentLanguage=event.target.value;overviewDocument=null;
@@ -3532,6 +3641,9 @@
         e.preventDefault();attempt(()=>switchNextPart(!e.shiftKey));return;
       }
       if(e.key==='`'&&!e.shiftKey&&!editing){e.preventDefault();attempt(repeatPreviousBar);return;}
+      if((e.key==='\\'||e.code==='IntlRo'||e.code==='Backslash')&&!editing&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
+        e.preventDefault();attempt(toggleActiveStaff);return;
+      }
       if(editing||e.altKey||(e.ctrlKey||e.metaKey)&&!['ArrowUp','ArrowDown'].includes(e.key))return;
       if(e.key==='/'||e.key==='?'){e.preventDefault();attempt(()=>toggleBeam(e.shiftKey));return;}
       if(e.key==='Home'||e.key==='End') {
@@ -3661,15 +3773,17 @@
   if(window.__KANADE_DEV__) window.__kanadeDev={
     capture:()=>({version:1,score:C.copy(documentScore()),partIndex,selected,activeMeasure,caret:{...caret},
       den,dots,alter,octave,chordMode,editMode,previewStep,lastEnteredId,selectionRange,rangeAnchor,clipboard:C.copy(clipboard),
-      undo:C.copy(undo),redo:C.copy(redo),
+      undo:C.copy(undo),redo:C.copy(redo),activeStaff,
       view:window.KanadeViewport?.capture(),scrollTop:$('scoreScroll').scrollTop,scrollLeft:$('scoreScroll').scrollLeft}),
     restore:s=>{
       if(s.version!==1||C.validateScore(s.score).length)throw new Error('Incompatible development snapshot');
       selectionRange=s.selectionRange||null;rangeAnchor=s.rangeAnchor||null;clipboard=s.clipboard||null;
-      loadScore(s.score,s.partIndex);selected=s.selected;activeMeasure=s.activeMeasure;caret=s.caret;
+      loadScore(s.score,s.partIndex);
+      if(s.activeStaff===2)setActiveStaff(2,{keepCaret:false});
+      selected=s.selected;activeMeasure=s.activeMeasure;caret=s.caret;
       den=s.den;dots=s.dots;alter=s.alter;octave=s.octave;chordMode=s.chordMode;
       editMode=s.editMode;previewStep=s.previewStep;lastPointer=null;lastEnteredId=s.lastEnteredId||null;
-      undo.splice(0,undo.length,...s.undo);redo.splice(0,redo.length,...s.redo);
+      undo.splice(0,undo.length,...(s.undo||[]));redo.splice(0,redo.length,...(s.redo||[]));
       persist();render();setOctave(octave);
       if(s.view)window.KanadeViewport?.restore(s.view);
       $('scoreScroll').scrollTop=s.scrollTop;$('scoreScroll').scrollLeft=s.scrollLeft;

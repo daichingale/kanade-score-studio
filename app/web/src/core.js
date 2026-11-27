@@ -106,7 +106,8 @@
       const old=score.measures[mi]||{id:uid(),events:[]};
       if(mi<start||mi>=limit)return old;
       const time=sequence[(mi-start)%sequence.length],cap=measureTicks(time);
-      if(usedTicks(old)>cap||usedTicks({events:old.voice2||[]})>cap)throw Error(`${mi+1}小節目の音符・休符が ${time.num}/${time.den} に収まりません`);
+      if(usedTicks(old)>cap||usedTicks({events:old.voice2||[]})>cap||usedTicks({events:old.staff2||[]})>cap)
+        throw Error(`${mi+1}小節目の音符・休符が ${time.num}/${time.den} に収まりません`);
       return {...old,time};
     });
     const meterTail=count===null?{sequence,next:(length-start)%sequence.length}:
@@ -144,13 +145,195 @@
   const soundingOffset=score=>{if(score.clef==='percussion')return 0;const t=transposition(score);return t.chromatic+t.octave*12;};
   const soundName=score=>score.sound||score.instrument;
   function staffBounds(score,top=0){const lines=score.staffLines||5;return {lines,first:top+24-(lines-1)*6,last:top+24+(lines-1)*6};}
+  const GRAND_STAFF_KEYS=Object.freeze(['piano','harp','marimba','celesta','pipeOrgan','electricPiano','harpsichord','bassMarimba']);
+  const GRAND_STAVES=Object.freeze([{clef:'treble'},{clef:'bass'}]);
+  const prefersGrandStaff=key=>GRAND_STAFF_KEYS.includes(key);
+  function normalizeStaffEntry(entry,fallbackClef='treble',fallbackLines){
+    if(!entry||typeof entry!=='object')return null;
+    const clef=Object.hasOwn(CLEFS,entry.clef)?entry.clef:fallbackClef;
+    const staffLines=entry.staffLines===undefined?fallbackLines:
+      (Number.isInteger(entry.staffLines)&&entry.staffLines>=1&&entry.staffLines<=5?entry.staffLines:null);
+    if(staffLines===null)return null;
+    return staffLines===undefined?{clef}:{clef,staffLines};
+  }
+  function partStaves(score){
+    if(Array.isArray(score?.staves)&&score.staves.length){
+      return score.staves.map((entry,index)=>normalizeStaffEntry(entry,index? 'bass':score.clef||'treble',
+        index?undefined:score.staffLines)||{clef:index?'bass':score.clef||'treble'});
+    }
+    return [{clef:score?.clef||'treble',...(score?.staffLines?{staffLines:score.staffLines}:{})}];
+  }
+  const isGrandStaff=score=>partStaves(score).length>=2;
+  const staffCount=score=>partStaves(score).length;
+  function staffClef(score,staff=1){
+    const list=partStaves(score);
+    return list[Math.max(0,Math.min(list.length,staff)-1)]?.clef||score.clef||'treble';
+  }
+  function staffLinesOf(score,staff=1){
+    const list=partStaves(score);
+    const entry=list[Math.max(0,Math.min(list.length,staff)-1)];
+    return entry?.staffLines||score.staffLines||5;
+  }
+  function measureStaffEvents(bar,staff=1){
+    if(staff===2)return bar?.staff2||[];
+    return bar?.events||[];
+  }
+  function staffScore(score,staff=1){
+    if(staff===1||!isGrandStaff(score))return score;
+    const measures=score.measures.map(({staff2,...bar})=>({...bar,events:staff2||[]}));
+    return {...score,clef:staffClef(score,2),staffLines:staffLinesOf(score,2),measures};
+  }
+  function mergeStaff(part,staff,edited){
+    if(staff===1||!isGrandStaff(part)){
+      if(!isGrandStaff(part))return edited;
+      const measures=edited.measures.map((bar,mi)=>{
+        const previous=part.measures[mi];
+        if(!previous)return bar;
+        if(previous.staff2?.length)return {...bar,staff2:previous.staff2};
+        const {staff2,...rest}=bar;return rest;
+      });
+      return {...edited,staves:part.staves||GRAND_STAVES.slice(),measures};
+    }
+    const measures=part.measures.map((bar,mi)=>{
+      const next=edited.measures[mi];
+      if(!next)return bar;
+      const events=next.events||[];
+      if(events.length)return {...bar,id:next.id,time:next.time,staff2:events,
+        ...(next.directions?{directions:next.directions}:bar.directions?{directions:bar.directions}:{}),
+        ...(next.repeatStart?{repeatStart:true}:{}),...(next.repeatEnd?{repeatEnd:true}:{}),
+        ...(next.volta!==undefined?{volta:next.volta}:{})};
+      const {staff2,...rest}=bar;
+      return {...rest,id:next.id,...(next.time?{time:next.time}:{})};
+    });
+    for(const bar of edited.measures.slice(measures.length)){
+      measures.push({id:bar.id||uid(),events:[],...(bar.time?{time:bar.time}:{}),...(bar.events?.length?{staff2:bar.events}:{})});
+    }
+    return {...part,measures,...(edited.meterTail?{meterTail:edited.meterTail}:{}),
+      title:edited.title,composer:edited.composer,tempo:edited.tempo,time:edited.time,key:edited.key};
+  }
+  function splitPitchesByStaff(pitches,splitMidi=60){
+    const upper=[],lower=[];
+    for(const pitch of pitches||[]){
+      if(pitchMidi(pitch)>=splitMidi)upper.push(pitch);else lower.push(pitch);
+    }
+    return {upper,lower};
+  }
+  function setGrandStaff(score,enabled,{splitMidi=60}={}){
+    if(enabled){
+      if(isGrandStaff(score))return score;
+      const measures=score.measures.map(bar=>{
+        const upper=[],lower=[];
+        for(const event of bar.events||[]){
+          if(event.type!=='note'){upper.push(copy(event));continue;}
+          const {upper:high,lower:low}=splitPitchesByStaff(event.pitches,splitMidi);
+          if(high.length&&!low.length)upper.push(copy(event));
+          else if(low.length&&!high.length)lower.push(copy(event));
+          else if(high.length&&low.length){
+            upper.push({...copy(event),pitches:normalizeChord(high)});
+            lower.push({...copy(event),id:uid(),pitches:normalizeChord(low.map(pitch=>({...pitch,id:uid()})))});
+          }else upper.push(copy(event));
+        }
+        const next={...bar,events:upper};
+        if(lower.length)next.staff2=lower;else delete next.staff2;
+        return next;
+      });
+      return {...score,clef:'treble',staves:GRAND_STAVES.map(entry=>({...entry})),measures};
+    }
+    if(!isGrandStaff(score))return score;
+    const measures=score.measures.map(bar=>{
+      const {staff2,...rest}=bar;
+      const upper=bar.events||[],lower=staff2||[];
+      if(!lower.length)return rest;
+      if(!upper.length)return {...rest,events:lower.map(copy)};
+      const spans=[];
+      let tick=0;
+      for(const event of upper){spans.push({tick,event,staff:1});tick+=eventTicks(event);}
+      tick=0;
+      for(const event of lower){spans.push({tick,event,staff:2});tick+=eventTicks(event);}
+      spans.sort((a,b)=>a.tick-b.tick||a.staff-b.staff);
+      const events=[];
+      let cursor=0;
+      for(const span of spans){
+        if(span.event.type==='rest')continue;
+        if(span.tick>cursor)events.push(...fillRests(span.tick-cursor).map(r=>makeRest(r.den,r.dots)));
+        else if(span.tick<cursor){
+          // Overlapping content from the other staff: append as a later note.
+          events.push(copy(span.event));
+          cursor=Math.max(cursor,span.tick+eventTicks(span.event));
+          continue;
+        }
+        events.push(copy(span.event));
+        cursor=span.tick+eventTicks(span.event);
+      }
+      return {...rest,events};
+    });
+    const {staves,...rest}=score;
+    return {...rest,clef:score.clef||'treble',measures};
+  }
+  function migrateDocument(documentScore){
+    if(!documentScore||typeof documentScore!=='object')return documentScore;
+    const migratePart=part=>{
+      if(!part||typeof part!=='object')return part;
+      let next=part;
+      if(Array.isArray(part.staves)){
+        const normalized=part.staves.map((entry,index)=>normalizeStaffEntry(entry,index?'bass':part.clef||'treble',index?undefined:part.staffLines)).filter(Boolean);
+        if(normalized.length>=2){
+          if(normalized.length!==part.staves.length||normalized.some((entry,i)=>entry.clef!==part.staves[i]?.clef||entry.staffLines!==part.staves[i]?.staffLines))
+            next={...next,staves:normalized.slice(0,2),clef:normalized[0].clef};
+        }else if(normalized.length===1){
+          const {staves,...rest}=next;
+          next={...rest,clef:normalized[0].clef,...(normalized[0].staffLines?{staffLines:normalized[0].staffLines}:{})};
+        }else{
+          const {staves,...rest}=next;next=rest;
+        }
+      }
+      if(Array.isArray(next.measures)){
+        const measures=next.measures.map(bar=>{
+          if(!bar||!Array.isArray(bar.staff2))return bar;
+          if(!isGrandStaff(next)&&bar.staff2.length){
+            // Orphan lower-staff events on a single-staff part: keep data by merging.
+            return {...bar,events:[...(bar.events||[]),...bar.staff2.map(copy)],staff2:undefined};
+          }
+          return bar;
+        });
+        if(measures.some((bar,i)=>bar!==next.measures[i]))next={...next,measures};
+      }
+      return next;
+    };
+    const first=migratePart(documentScore);
+    let next=first;
+    if(Array.isArray(documentScore.ensembleParts)){
+      const ensembleParts=documentScore.ensembleParts.map(migratePart);
+      if(ensembleParts.some((part,i)=>part!==documentScore.ensembleParts[i])||first!==documentScore)
+        next={...first,ensembleParts};
+    }
+    if(Array.isArray(next.staffGroups)){
+      const groups=next.staffGroups.filter(group=>group&&typeof group==='object'&&
+        typeof group.id==='string'&&group.id&&['brace','bracket'].includes(group.symbol)&&
+        Number.isInteger(group.start)&&Number.isInteger(group.end)&&group.start>=0&&group.end>=group.start);
+      if(groups.length!==next.staffGroups.length)next={...next,staffGroups:groups};
+    }
+    return next;
+  }
   function createScore() {
     return { schema: 'kanade.web.v1', id: uid(), title: '新しい楽譜', composer: '',
-      instrument: 'ピアノ', clef: 'treble', time: {num:4, den:4}, key: 0, tempo: 100,
+      instrument: 'ピアノ', instrumentKey: 'piano', clef: 'treble',
+      staves: GRAND_STAVES.map(entry=>({...entry})),
+      time: {num:4, den:4}, key: 0, tempo: 100,
       measures: [{id:uid(), events:[]} ] };
   }
+  function applyInstrumentStaves(part,instrumentKey){
+    if(prefersGrandStaff(instrumentKey)){
+      if(isGrandStaff(part))return {...part,instrumentKey,staves:GRAND_STAVES.map(entry=>({...entry}))};
+      return setGrandStaff({...part,instrumentKey},true);
+    }
+    if(!isGrandStaff(part)&&!part.staves)return {...part,instrumentKey};
+    const cleared=setGrandStaff(part,false);
+    const {staves,...rest}=cleared;
+    return {...rest,instrumentKey};
+  }
   function scoreParts(documentScore) {
-    const {ensembleParts,bassPart,publication,clipBank,sceneLinks,...first}=documentScore;
+    const {ensembleParts,bassPart,publication,clipBank,sceneLinks,staffGroups,...first}=documentScore;
     return [first,...(ensembleParts||[])];
   }
   function replaceScorePart(documentScore,index,next,{duplicateFrom=null}={}) {
@@ -180,7 +363,8 @@
     });
     const [first,...ensembleParts]=updated;
     return {...first,ensembleParts,...(documentScore.publication?{publication:documentScore.publication}:{}),
-      ...(documentScore.clipBank?{clipBank:documentScore.clipBank}:{}),...(documentScore.sceneLinks?{sceneLinks:documentScore.sceneLinks}:{})};
+      ...(documentScore.clipBank?{clipBank:documentScore.clipBank}:{}),...(documentScore.sceneLinks?{sceneLinks:documentScore.sceneLinks}:{}),
+      ...(documentScore.staffGroups?{staffGroups:documentScore.staffGroups}:{})};
   }
   function makeNote(pitch, den = 4, dots = 0) {
     return { id: uid(), type:'note', den, dots, pitches:[normalPitch(pitch)] };
@@ -244,6 +428,18 @@
     if(score.instrumentKey!==undefined&&(typeof score.instrumentKey!=='string'||!(/^[a-z][a-z0-9]{0,63}$/i).test(score.instrumentKey)))errors.push('楽器の種類が不正です');
     if(score.customInstrumentName!==undefined&&typeof score.customInstrumentName!=='boolean')errors.push('パート名の形式が不正です');
     if (!Object.hasOwn(CLEFS,score.clef)) errors.push('音部記号が不正です');
+    if(score.staves!==undefined){
+      if(!Array.isArray(score.staves)||score.staves.length<1||score.staves.length>2||
+        score.staves.some(entry=>!normalizeStaffEntry(entry,score.clef,score.staffLines)))
+        errors.push('譜表構成が不正です');
+    }
+    if(score.staffGroups!==undefined){
+      const groups=score.staffGroups,parts=scoreParts(score);
+      if(nested||!Array.isArray(groups)||groups.length>32||groups.some(group=>!group||typeof group.id!=='string'||!group.id||
+        !['brace','bracket'].includes(group.symbol)||!Number.isInteger(group.start)||!Number.isInteger(group.end)||
+        group.start<0||group.end<group.start||group.end>=parts.length))
+        errors.push('パート括弧の設定が不正です');
+    }
     if(score.sound!==undefined&&(typeof score.sound!=='string'||score.sound.length>120))errors.push('再生音源が不正です');
     if(score.staffLines!==undefined&&(!Number.isInteger(score.staffLines)||score.staffLines<1||score.staffLines>5))errors.push('譜線数が不正です');
     if(score.transposition!==undefined&&!Object.hasOwn(TRANSPOSITIONS,score.transposition))errors.push('移調設定が不正です');
@@ -292,7 +488,14 @@
       if(m.voice2!==undefined&&(!Array.isArray(m.voice2)||m.voice2.length>200)){
         errors.push(`${i+1}小節目の第2声部が不正です`);continue;
       }
-      for(const events of m.voice2?[m.events,m.voice2]:[m.events]){
+      if(m.staff2!==undefined){
+        if(!Array.isArray(m.staff2)||m.staff2.length>200){errors.push(`${i+1}小節目の下段が不正です`);continue;}
+        if(!isGrandStaff(score)&&m.staff2.length)errors.push(`${i+1}小節目の下段は大譜表でのみ使えます`);
+      }
+      const layers=[m.events];
+      if(m.voice2)layers.push(m.voice2);
+      if(m.staff2)layers.push(m.staff2);
+      for(const events of layers){
         let total=0,group=null,slot=0;
         for (const e of events) {
           count++;
@@ -350,11 +553,31 @@
       if(result.noteBackup){result.noteBackup.id=result.id;result.noteBackup.pitches.forEach(pitch=>{pitch.id=uid();});}
       return result;
     };
-    return {...bar,id:uid(),events:bar.events.map(fresh),...(bar.voice2?{voice2:bar.voice2.map(fresh)}:{})};
+    return {...bar,id:uid(),events:bar.events.map(fresh),
+      ...(bar.voice2?{voice2:bar.voice2.map(fresh)}:{}),
+      ...(bar.staff2?{staff2:bar.staff2.map(fresh)}:{})};
   }
   function voiceScore(score,voice){
     const measures=score.measures.map(({voice2,...bar})=>({...bar,events:voice===2?voice2||[]:bar.events}));
     return {...score,measures};
+  }
+  function groupParts(documentScore,start,end,symbol='bracket'){
+    if(!['brace','bracket'].includes(symbol))throw Error('括弧の種類が不正です');
+    const parts=scoreParts(documentScore);
+    if(!Number.isInteger(start)||!Number.isInteger(end)||start<0||end<start||end>=parts.length)
+      throw Error('まとめるパートの範囲を確認してください');
+    const staffGroups=[...(documentScore.staffGroups||[]).filter(group=>!(group.end>=start&&group.start<=end)),
+      {id:uid(),symbol,start,end}];
+    const next={...documentScore,staffGroups};
+    const errors=validateScore(next);if(errors.length)throw Error(errors[0]);
+    return next;
+  }
+  function ungroupParts(documentScore,start,end){
+    const staffGroups=(documentScore.staffGroups||[]).filter(group=>!(group.start===start&&group.end===end));
+    const next={...documentScore};
+    if(staffGroups.length)next.staffGroups=staffGroups;else delete next.staffGroups;
+    const errors=validateScore(next);if(errors.length)throw Error(errors[0]);
+    return next;
   }
   function editMeasure(score,index) {
     const next={...score,measures:score.measures.slice()};
@@ -505,7 +728,14 @@
     });
   }
   function withSettings(score,patch) {
-    const next={...score,...copy(patch)};
+    let next={...score,...copy(patch)};
+    if(patch.clef==='percussion'&&isGrandStaff(next))next=setGrandStaff(next,false);
+    if(patch.clef!==undefined&&Array.isArray(next.staves)&&next.staves.length){
+      next.staves=next.staves.map((entry,index)=>index?entry:{...entry,clef:patch.clef});
+    }
+    if(patch.staffLines!==undefined&&Array.isArray(next.staves)&&next.staves.length){
+      next.staves=next.staves.map((entry,index)=>index?entry:{...entry,staffLines:patch.staffLines});
+    }
     const errors=validateScore(next); if (errors.length) throw new Error(errors[0]);
     return next;
   }
@@ -726,5 +956,5 @@
     const sym= e.dots?'.'.repeat(e.dots):'';
     return e.type==='rest' ? `休符 1/${e.den}${sym}` : e.pitches.map(p=>p.step+({1:'♯',2:'𝄪','-1':'♭','-2':'𝄫'}[p.alter]||'')+p.octave).join(' + ')+`  1/${e.den}${sym}`;
   }
-  return {CLIP_COUNT,CLIP_MEASURES,scoreParts,replaceScorePart,cloneMeasure,voiceScore,Symbols,changeDirections,isRangeDirection,directionEnd,directionSegments,setDirectionRange,ARTICULATIONS,CLEFS,TRANSPOSITIONS,transposition,soundingOffset,soundName,staffBounds,TPQ,WHOLE,DENOMS,TUPLETS,MAX_TUPLET_COUNT,validTupletRatio,STEPS,SHARP_ORDER,FLAT_ORDER,copy,uid,createScore,makeNote,makeRest,normalPitch,pitchMidi,diatonicNumber,normalizeChord,durationTicks,eventTicks,exactEventTicks,tupletUnit,tupletEnd,restFor,measureTicks,sameTime,timeAt,endingEdges,barTicks,measureOffsets,locateTick,setMeter,usedTicks,validateScore,insertEvent,deleteEvent,changeEvent,changeDuration,addChordPitch,flipNoteRest,toggleNoteRest,changeSemitone,withSettings,addMeasure,removeMeasure,keyAlter,fillRests,eventsWithRests,eventSpans,canPlaceAt,exactDurations,placeEventAt,placeEventsAt,placeAcrossBars,placeTuplet,tupletGroupAt,replaceTupletEntry,samePitches,nextWrittenEvent,toggleTie,tieFlags,snapInputTick,eventLabel};
+  return {CLIP_COUNT,CLIP_MEASURES,scoreParts,replaceScorePart,cloneMeasure,voiceScore,staffScore,mergeStaff,setGrandStaff,migrateDocument,applyInstrumentStaves,groupParts,ungroupParts,partStaves,isGrandStaff,staffCount,staffClef,staffLinesOf,measureStaffEvents,prefersGrandStaff,GRAND_STAFF_KEYS,GRAND_STAVES,Symbols,changeDirections,isRangeDirection,directionEnd,directionSegments,setDirectionRange,ARTICULATIONS,CLEFS,TRANSPOSITIONS,transposition,soundingOffset,soundName,staffBounds,TPQ,WHOLE,DENOMS,TUPLETS,MAX_TUPLET_COUNT,validTupletRatio,STEPS,SHARP_ORDER,FLAT_ORDER,copy,uid,createScore,makeNote,makeRest,normalPitch,pitchMidi,diatonicNumber,normalizeChord,durationTicks,eventTicks,exactEventTicks,tupletUnit,tupletEnd,restFor,measureTicks,sameTime,timeAt,endingEdges,barTicks,measureOffsets,locateTick,setMeter,usedTicks,validateScore,insertEvent,deleteEvent,changeEvent,changeDuration,addChordPitch,flipNoteRest,toggleNoteRest,changeSemitone,withSettings,addMeasure,removeMeasure,keyAlter,fillRests,eventsWithRests,eventSpans,canPlaceAt,exactDurations,placeEventAt,placeEventsAt,placeAcrossBars,placeTuplet,tupletGroupAt,replaceTupletEntry,samePitches,nextWrittenEvent,toggleTie,tieFlags,snapInputTick,eventLabel};
 });

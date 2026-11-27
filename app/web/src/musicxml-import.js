@@ -104,7 +104,32 @@
       const bar=part.measures[mi];
       bar.events=repairEventList(bar.events||[],cap,warn);
       if(bar.voice2?.length)bar.voice2=repairEventList(bar.voice2,cap,warn);
+      if(bar.staff2?.length)bar.staff2=repairEventList(bar.staff2,cap,warn);
     }
+  }
+  function attachPartGroups(list,partIds){
+    const groups=[],stack=[];
+    let partIndex=-1;
+    for(const node of children(list)){
+      if(node.localName==='score-part'){
+        partIndex=partIds.indexOf(attr(node,'id'));
+        for(const open of stack)if(open.start===null)open.start=partIndex;
+        continue;
+      }
+      if(node.localName!=='part-group')continue;
+      const type=attr(node,'type'),number=attr(node,'number')||'1';
+      if(type==='start')stack.push({id:C.uid(),number,symbol:value(node,'group-symbol')==='brace'?'brace':'bracket',start:null});
+      else if(type==='stop'){
+        const open=stack.filter(item=>item.number===number&&item.end===undefined).at(-1);
+        if(open&&open.start!==null&&partIndex>=open.start){
+          open.end=partIndex;
+          groups.push({id:open.id,symbol:open.symbol,start:open.start,end:open.end});
+        }
+        const index=stack.lastIndexOf(open);
+        if(index>=0)stack.splice(index,1);
+      }
+    }
+    return groups;
   }
 
   function xml(source){
@@ -117,7 +142,8 @@
   function parse(source){
     const doc=xml(source);
     if(doc.localName!=='score-partwise')throw Error('パート単位の MusicXML（score-partwise）を選んでください');
-    const names=new Map(children(one(doc,'part-list'),'score-part').map(node=>[attr(node,'id'),node]));
+    const partList=one(doc,'part-list');
+    const names=new Map(children(partList,'score-part').map(node=>[attr(node,'id'),node]));
     const input=children(doc,'part');
     if(!input.length||input.length>32)throw Error('読み込める編成は1〜32譜表です');
     const warnings=new Set(),warn=message=>warnings.add(message);
@@ -149,8 +175,10 @@
       part.time=reference[0];
       part.measures.forEach((bar,mi)=>Object.assign(bar,{time:reference[mi]},repeats[mi]));
     }
+    const staffGroups=attachPartGroups(partList,input.map(node=>attr(node,'id')));
     const [first,...ensembleParts]=parts;
-    const score=ensembleParts.length?{...first,ensembleParts}:first;
+    let score=ensembleParts.length?{...first,ensembleParts}:first;
+    if(staffGroups.length)score={...score,staffGroups};
     for(const part of parts){
       repairPartMeasures(part,warn);
       const validation=C.validateScore(part,true);
@@ -173,19 +201,29 @@
     const instruments=new Map(children(info,'score-instrument').map(node=>[attr(node,'id'),value(node,'instrument-name')]));
     const sound=catalog?.sound||Object.entries(samples.presets).find(([,preset])=>preset.program===program)?.[0]||name;
     let divisions=1,time={num:4,den:4},volta=0,key=0,shift=null;
-    const defaultClefs=staves===2&&(!catalog||catalog.key==='piano')?['treble','bass']:[];
-    const tracks=Array.from({length:staves},(_,i)=>({
-      ...C.createScore(),...base,instrument:staves>1?name+' '+(i+1):name,sound,clef:defaultClefs[i]||catalog?.clef||'treble',
-      ...(catalog?{instrumentKey:catalog.key}:{}),
-      ...(staves===1&&catalog&&value(info,'part-abbreviation')?{shortName:value(info,'part-abbreviation').slice(0,120)}:{}),
-      measures:Array.from({length:count},()=>({id:C.uid(),events:[]}))
-    }));
-    const open=tracks.map(()=>new Map());
+    const keepGrand=staves===2;
+    const defaultClefs=staves===2?['treble','bass']:staves>1?[catalog?.clef||'treble','bass']:[];
+    const staffMeta=Array.from({length:staves},(_,i)=>({clef:defaultClefs[i]||catalog?.clef||'treble',staffLines:5}));
+    const blankPart=()=>{
+      const {staves:ignored,...seed}=C.createScore();
+      return {...seed,...base,instrument:name,sound,clef:staffMeta[0].clef,
+        ...(catalog?{instrumentKey:catalog.key}:{}),
+        ...(catalog&&value(info,'part-abbreviation')?{shortName:value(info,'part-abbreviation').slice(0,120)}:{}),
+        measures:Array.from({length:count},()=>({id:C.uid(),events:[]}))};
+    };
+    const tracks=keepGrand?[blankPart()]:Array.from({length:staves},(_,i)=>{
+      const {staves:ignored,...seed}=C.createScore();
+      return {...seed,...base,instrument:staves>1?name+' '+(i+1):name,sound,clef:staffMeta[i].clef,
+        ...(catalog?{instrumentKey:catalog.key}:{}),
+        ...(staves===1&&catalog&&value(info,'part-abbreviation')?{shortName:value(info,'part-abbreviation').slice(0,120)}:{}),
+        measures:Array.from({length:count},()=>({id:C.uid(),events:[]}))};
+    });
+    const open=Array.from({length:staves},()=>new Map());
     const kits=root.KanadePercussion;
-    if(staves>1)warn('大譜表は編集できる独立した譜表に分けました');
+    if(staves>2)warn('3段以上の譜表は編集できる独立した譜表に分けました');
     if(bars.length!==count)warn('小節数の少ないパートは末尾に空小節を補いました');
     for(let mi=0;mi<count;mi++){
-      const bar=bars[mi],voices=tracks.map(()=>new Map());
+      const bar=bars[mi],voices=Array.from({length:staves},()=>new Map());
       let cursor=0;
       const tick=quarters=>Math.round(quarters*C.TPQ);
       try{
@@ -217,15 +255,22 @@
                 }else if(semitones!==C.soundingOffset({clef:'treble',transposition:shift}))warn('途中の移調設定変更は先頭の設定で再生します');
               }
               for(const clef of children(item,'clef')){
-                const index=Number(attr(clef,'number')||1)-1,track=tracks[index],sign=value(clef,'sign'),line=number(clef,'line');
+                const index=Number(attr(clef,'number')||1)-1,sign=value(clef,'sign'),line=number(clef,'line');
                 const match=Object.keys(C.CLEFS).find(id=>C.CLEFS[id].sign===sign&&(id==='percussion'||C.CLEFS[id].line===line));
-                if(!track||!match){warn('未対応の音部記号は既定の音部記号に置き換えました');continue;}
-                if(mi===0&&cursor===0)track.clef=match;
-                else if(track.clef!==match)warn('途中の音部記号変更は先頭の音部記号で表示します');
+                if(index<0||index>=staves||!match){warn('未対応の音部記号は既定の音部記号に置き換えました');continue;}
+                if(mi===0&&cursor===0){
+                  staffMeta[index].clef=match;
+                  if(!keepGrand)tracks[index].clef=match;
+                  else if(index===0)tracks[0].clef=match;
+                }else if(staffMeta[index].clef!==match)warn('途中の音部記号変更は先頭の音部記号で表示します');
               }
               for(const detail of children(item,'staff-details')){
-                const track=tracks[Number(attr(detail,'number')||1)-1],lines=number(detail,'staff-lines');
-                if(track&&mi===0&&lines>=1&&lines<=5)track.staffLines=lines;
+                const index=Number(attr(detail,'number')||1)-1,lines=number(detail,'staff-lines');
+                if(index>=0&&index<staves&&mi===0&&lines>=1&&lines<=5){
+                  staffMeta[index].staffLines=lines;
+                  if(!keepGrand)tracks[index].staffLines=lines;
+                  else if(index===0)tracks[0].staffLines=lines;
+                }
               }
               if(item.querySelector('multiple-rest'))warn('複数小節休符は個別の小節として表示します');
               break;
@@ -267,13 +312,14 @@
             }
             case 'direction': {
               const staff=number(item,'staff',1)-1;
-              if(!tracks[staff])throw Error('記号の譜表番号が不正です');
+              if(staff<0||staff>=staves)throw Error('記号の譜表番号が不正です');
+              const target=keepGrand?tracks[0]:tracks[staff];
               const at=tick(cursor+number(item,'offset')/divisions);
               for(const data of children(item,'direction-type').flatMap(node=>children(node))){
                 const number=attr(data,'number')||'1';
                 if(data.localName==='wedge'){
                   const type=attr(data,'type');
-                  if(type==='stop')closeRange(tracks[staff],open[staff],'wedge'+number,mi,at,warn);
+                  if(type==='stop')closeRange(target,open[staff],'wedge'+number,mi,at,warn);
                   else if(['crescendo','diminuendo'].includes(type))open[staff].set('wedge'+number,{mi,tick:at,key:type});
                   continue;
                 }
@@ -281,8 +327,8 @@
                 const words=data.textContent.trim();
                 const mark=markList.find(entry=>entry.xml===data.localName||data.localName==='dynamics'&&entry.style==='dynamic'&&entry.label===children(data)[0]?.localName||
                   ['words','rehearsal'].includes(data.localName)&&entry.label===words&&!C.isRangeDirection(entry.key));
-                if(mark)direction(tracks[staff],mi,{tick:at,key:mark.key},warn);
-                else if(words)direction(tracks[staff],mi,{tick:at,key:'custom',text:words.slice(0,100)},warn);
+                if(mark)direction(target,mi,{tick:at,key:mark.key},warn);
+                else if(words)direction(target,mi,{tick:at,key:'custom',text:words.slice(0,100)},warn);
                 else warn('一部の未対応の指示記号を省略しました');
               }
               break;
@@ -306,7 +352,8 @@
               const kinds={major:'',minor:'m',dominant:'7','major-seventh':'maj7','minor-seventh':'m7',diminished:'dim',augmented:'aug'};
               if(step){
                 const text=(step+(acc===1?'♯':acc===-1?'♭':'')+(attr(kind,'text')||kinds[kind?.textContent]||'')).slice(0,100);
-                direction(tracks[number(item,'staff',1)-1]||tracks[0],mi,{tick:tick(cursor+number(item,'offset')/divisions),key:'chordSymbol',text},warn);
+                const staff=number(item,'staff',1)-1;
+                direction(keepGrand?tracks[0]:(tracks[staff]||tracks[0]),mi,{tick:tick(cursor+number(item,'offset')/divisions),key:'chordSymbol',text},warn);
               }
               if(one(item,'bass')||one(item,'degree')||!step||!attr(kind,'text')&&!Object.hasOwn(kinds,kind?.textContent))warn('一部のコード記号は簡略化しました');
               break;
@@ -318,7 +365,22 @@
         if(volta)repeats[mi].volta=volta;
         const capacity=C.measureTicks(reference[mi]);
         if(attr(bar,'implicit')==='yes'&&tick(cursor)<capacity)warn('弱起・短縮小節は拍子に合わせて末尾に休符を補いました');
-        for(const [i,track] of tracks.entries()){
+        if(keepGrand){
+          const target=tracks[0].measures[mi];
+          for(const [staffIndex,map] of voices.entries()){
+            const ids=pickVoiceIds(map,capacity,warn);
+            const built=ids.map((id,voice)=>buildVoice(map.get(id)||[],capacity,{clef:staffMeta[staffIndex].clef},open[staffIndex],mi,voice,warn));
+            if(staffIndex===0){
+              target.events=built[0]||[];
+              if(built[1]?.length)target.voice2=built[1];
+            }else if(built[0]?.length)target.staff2=built[0];
+            else if(built[1]?.length){target.staff2=built[1];warn('下段の第2声部は第1声部として読みました');}
+          }
+          if(target.directions)target.directions=target.directions.filter(mark=>{
+            if(mark.tick>=0&&mark.tick<capacity)return true;
+            warn('小節外にある記号を省略しました');return false;
+          });
+        }else for(const [i,track] of tracks.entries()){
           const map=voices[i],target=track.measures[mi];
           const ids=pickVoiceIds(map,capacity,warn);
           for(const [voice,id] of ids.entries()){
@@ -337,8 +399,17 @@
         for(const track of tracks)track.measures[mi].events=repairEventList([],cap,warn);
       }
     }
+    for(const [i,bucket] of open.entries())if(bucket.size)warn('終点が見つからないスラーや強弱記号を省略しました');
+    if(keepGrand){
+      const track=tracks[0];
+      track.staves=staffMeta.map(entry=>({clef:entry.clef,...(entry.staffLines!==5?{staffLines:entry.staffLines}:{})}));
+      track.clef=staffMeta[0].clef;
+      track.key=track.clef==='percussion'?0:key;
+      track.transposition=shift||'concert';
+      repairPartMeasures(track,warn);
+      return [track];
+    }
     for(const [i,track] of tracks.entries()){
-      if(open[i].size)warn('終点が見つからないスラーや強弱記号を省略しました');
       track.key=track.clef==='percussion'?0:key;
       track.transposition=shift||'concert';
       repairPartMeasures(track,warn);

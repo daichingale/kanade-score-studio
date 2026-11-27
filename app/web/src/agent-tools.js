@@ -30,7 +30,8 @@
   proposeInstrumentation:'編成を提案',arrangeMelody:'旋律を編成に分配',doublePart:'パートを重ねる',
   voiceChords:'和音を配置',checkRanges:'音域を確認',fixRanges:'音域に収める',getInstrumentRanges:'音域表を確認',
   applyPopProgression:'ポップ進行を伴奏として入力',
-  inspireSpark:'作曲のひらめきを生成（必要なら楽譜に反映）'
+  inspireSpark:'作曲のひらめきを生成（必要なら楽譜に反映）',
+  setGrandStaff:'大譜表のオン／オフ',groupParts:'隣接パートを括弧でまとめる'
  };
 
  function fail(message){throw new Error(message);}
@@ -105,6 +106,7 @@
   if(doc.publication)next.publication=doc.publication;
   if(doc.clipBank)next.clipBank=doc.clipBank;
   if(doc.sceneLinks)next.sceneLinks=doc.sceneLinks;
+  if(doc.staffGroups)next.staffGroups=doc.staffGroups;
   if(doc.bassPart)next.bassPart=doc.bassPart;
   const errors=C.validateScore(next);
   if(errors.length)fail(errors[0]);
@@ -142,16 +144,34 @@
   fail(`「${query}」に複数のパートが一致します。番号で指定してください`);
  }
  function hasNotes(doc){
-  return partsOf(doc).some(part=>part.measures.some(bar=>[...(bar.events||[]),...(bar.voice2||[])].some(event=>event.type==='note')));
+  return partsOf(doc).some(part=>part.measures.some(bar=>[...(bar.events||[]),...(bar.voice2||[]),...(bar.staff2||[])].some(event=>event.type==='note')));
  }
  function emptyMeasures(source){
   return source.measures.map(bar=>({id:C.uid(),events:[],...(bar.time?{time:{...bar.time}}:{})}));
  }
  function partFromItem(doc,item,concert,{reuse=null}={}){
-  return {...C.createScore(),id:reuse?doc.id:C.uid(),instrument:item.name,instrumentKey:item.key,clef:item.clef,
+  const {staves,...seed}=C.createScore();
+  return C.applyInstrumentStaves({...seed,id:reuse?doc.id:C.uid(),instrument:item.name,instrumentKey:item.key,clef:item.clef,
    staffLines:item.staffLines,sound:item.sound,transposition:item.transposition,key:writtenKey(item,concert),
    title:doc.title,composer:doc.composer,time:doc.time,tempo:doc.tempo,...(doc.meterTail?{meterTail:doc.meterTail}:{}),
-   measures:reuse?reuse:emptyMeasures(doc)};
+   measures:reuse?reuse:emptyMeasures(doc)},item.key);
+ }
+ function resolveStaff(part,args,pitches){
+  if(!C.isGrandStaff(part))return 1;
+  if(args.staff!==undefined&&args.staff!==null&&args.staff!==''){
+   return integer(args.staff,'譜表',1,2);
+  }
+  const midis=(pitches||[]).map(pitch=>C.pitchMidi(pitch)).filter(Number.isFinite);
+  if(!midis.length)return 1;
+  const avg=midis.reduce((sum,value)=>sum+value,0)/midis.length;
+  return avg>=60?1:2;
+ }
+ function editStaffPart(doc,index,staff,fn){
+  const part=partsOf(doc)[index];
+  if(staff===1||!C.isGrandStaff(part))return editPart(doc,index,fn);
+  const view=C.staffScore(part,staff);
+  const edited=fn(view);
+  return editPart(doc,index,()=>C.mergeStaff(part,staff,edited));
  }
  function instrumentItem(value){
   if(I.byKey.get(value))return I.byKey.get(value);
@@ -192,15 +212,18 @@
   const part=partsOf(doc)[index];
   const name=part.instrument;
   const segments=parsePhraseSegments(args.phrase);
+  const pitches=segments.flat().filter(note=>note.type!=='rest').map(note=>({step:note.step,alter:note.alter||0,octave:note.octave}));
+  const staff=resolveStaff(part,args,pitches);
+  const view=C.staffScore(part,staff);
   const start=integer(args.measure??1,'小節',1,500)-1;
   const end=start+segments.length-1;
   const needed=end+1;
   const conflict=[];
   for(let mi=start;mi<=end;mi++){
-   if(mi>=part.measures.length)continue;
-   if((part.measures[mi].events||[]).some(event=>event.type==='note'))conflict.push(mi);
+   if(mi>=view.measures.length)continue;
+   if((view.measures[mi].events||[]).some(event=>event.type==='note'))conflict.push(mi);
   }
-  return {index,name,segments,start,end,needed,conflict,beat:args.beat,overwrite:flag(args.overwrite)};
+  return {index,name,segments,start,end,needed,conflict,beat:args.beat,overwrite:flag(args.overwrite),staff};
  }
  function measureRange(part,from,to){
   const start=integer(from??1,'開始小節',1,part.measures.length)-1;
@@ -513,8 +536,8 @@
    }
   },
   writePhrase:{
-   description:'記譜音の旋律を短いテキストで書く。phrase は "G4 q G4 q C5 h | G4 q G4 q G4 h" のように音高＋音価。音価は w h q e s t（全二分四分八分十六分三十二分）または数字。休符は r4。小節区切りは |。既存の音符を置き換える・書き直すときは overwrite を true。overwrite なしで既存音符に当たった場合も確認後に置き換える。',
-   parameters:{type:'object',properties:{part:{type:'string'},measure:{type:'integer'},beat:{type:'number'},phrase:{type:'string'},overwrite:{type:'boolean'}},required:['phrase']},
+   description:'記譜音の旋律を短いテキストで書く。phrase は "G4 q G4 q C5 h | G4 q G4 q G4 h" のように音高＋音価。音価は w h q e s t（全二分四分八分十六分三十二分）または数字。休符は r4。小節区切りは |。大譜表では staff に 1（上段）か 2（下段）。省略時は音高で自動選択（C4未満は下段）。既存の音符を置き換える・書き直すときは overwrite を true。',
+   parameters:{type:'object',properties:{part:{type:'string'},measure:{type:'integer'},beat:{type:'number'},phrase:{type:'string'},overwrite:{type:'boolean'},staff:{type:'integer'}},required:['phrase']},
    confirm(doc,args){
     const plan=planWritePhrase(doc,args);
     if(!plan.conflict.length)return null;
@@ -528,25 +551,28 @@
     for(let bar=0;bar<plan.segments.length;bar++){
      const measure=plan.start+bar;
      const notes=plan.segments[bar].map(note=>note.type==='rest'?{type:'rest',den:note.den,dots:note.dots||0}:{step:note.step,alter:note.alter,octave:note.octave,den:note.den,dots:note.dots||0});
-     const placed=operations.insertNotes.run(current,{part:args.part??plan.name,measure:measure+1,beat:bar===0?plan.beat:1,notes,overwrite});
+     const placed=operations.insertNotes.run(current,{part:args.part??plan.name,measure:measure+1,beat:bar===0?plan.beat:1,notes,overwrite,staff:plan.staff});
      current=placed.document;
      focus=placed.focusPart??focus;
      count+=notes.length;
      current=ensureMeasureCount(current,Math.max(plan.needed,partsOf(current)[0].measures.length));
     }
     const verb=overwrite&&plan.conflict.length?'置き換え':'入力';
-    return {document:current,focusPart:focus,summary:`${plan.name}の${plan.start+1}〜${plan.end+1}小節を${verb}しました（${plan.segments.length}小節・${count}音）`};
+    const staffLabel=plan.staff===2?'（下段）':'';
+    return {document:current,focusPart:focus,summary:`${plan.name}${staffLabel}の${plan.start+1}〜${plan.end+1}小節を${verb}しました（${plan.segments.length}小節・${count}音）`};
    }
   },
   insertNotes:{
-   description:'記譜音の音符を拍位置から順に置く。notesの各要素はstep、octave、den、必要ならalter、dots、tie。overwriteがtrueなら重なった音符を置き換える。',
-   parameters:{type:'object',properties:{part:{type:'string'},measure:{type:'integer'},beat:{type:'number'},overwrite:{type:'boolean'},notes:{type:'array'}},required:['measure','notes']},
+   description:'記譜音の音符を拍位置から順に置く。notesの各要素はstep、octave、den、必要ならalter、dots、tie。大譜表では staff に 1 または 2。省略時は音高で自動選択。overwriteがtrueなら重なった音符を置き換える。',
+   parameters:{type:'object',properties:{part:{type:'string'},measure:{type:'integer'},beat:{type:'number'},overwrite:{type:'boolean'},staff:{type:'integer'},notes:{type:'array'}},required:['measure','notes']},
    confirm(doc,args){
     if(!flag(args.overwrite))return null;
     const index=resolvePart(doc,args.part),part=partsOf(doc)[index];
-    const measure=integer(args.measure,'小節',1,part.measures.length)-1;
     const events=parseSequence(args.notes,'音符');
-    if(!affectedHasNotes(part,measure,beatTick(part,measure,args.beat),events))return null;
+    const staff=resolveStaff(part,args,events.filter(event=>event.type==='note').flatMap(event=>event.pitches||[]));
+    const view=C.staffScore(part,staff);
+    const measure=integer(args.measure,'小節',1,view.measures.length)-1;
+    if(!affectedHasNotes(view,measure,beatTick(view,measure,args.beat),events))return null;
     return `${index+1}番${part.instrument}の${measure+1}小節目付近にある音符を置き換えます。`;
    },
    run(doc,args){
@@ -554,8 +580,41 @@
     const measure=integer(args.measure,'小節',1,500)-1;
     if(measure>=part.measures.length)fail(`${part.measures.length}小節までしかありません`);
     const events=parseSequence(args.notes,'音符');
-    const edited=placeSequence(part,measure,beatTick(part,measure,args.beat),events,flag(args.overwrite));
-    return {document:editPart(doc,index,()=>edited),focusPart:index,summary:`${part.instrument}の${measure+1}小節から${events.length}音を入力しました`};
+    const staff=resolveStaff(part,args,events.filter(event=>event.type==='note').flatMap(event=>event.pitches||[]));
+    const view=C.staffScore(part,staff);
+    const edited=placeSequence(view,measure,beatTick(view,measure,args.beat),events,flag(args.overwrite));
+    return {document:editStaffPart(doc,index,staff,()=>edited),focusPart:index,
+     summary:`${part.instrument}${staff===2?'（下段）':''}の${measure+1}小節から${events.length}音を入力しました`};
+   }
+  },
+  setGrandStaff:{
+   description:'パートを大譜表（ト音＋ヘ音）にする、または1段に戻す。on が true なら大譜表。ピアノ・ハープ・マリンバ・チェレスタ・オルガン向け。',
+   parameters:{type:'object',properties:{part:{type:'string'},on:{type:'boolean'}},required:['on']},
+   run(doc,args){
+    const index=resolvePart(doc,args.part),part=partsOf(doc)[index];
+    const enabled=flag(args.on);
+    const edited=C.setGrandStaff(part,enabled);
+    return {document:editPart(doc,index,()=>edited),focusPart:index,
+     summary:`${part.instrument}を${enabled?'大譜表にしました':'1段に戻しました'}`};
+   }
+  },
+  groupParts:{
+   description:'隣接するパートを括弧（bracket）または中括弧（brace）でまとめる。parts はパート番号の配列、または start と end（1始まり）。symbol は bracket か brace。',
+   parameters:{type:'object',properties:{parts:{type:'array'},start:{type:'integer'},end:{type:'integer'},symbol:{type:'string'}}},
+   run(doc,args){
+    const symbol=String(args.symbol||'bracket')==='brace'?'brace':'bracket';
+    let start,end;
+    if(Array.isArray(args.parts)&&args.parts.length){
+     const indexes=args.parts.map(value=>resolvePart(doc,value)).sort((a,b)=>a-b);
+     start=indexes[0];end=indexes.at(-1);
+     if(indexes.some((value,i)=>i&&value!==indexes[i-1]+1))fail('まとめるパートは連続している必要があります');
+    }else{
+     start=integer(args.start??1,'開始パート',1,partsOf(doc).length)-1;
+     end=integer(args.end??start+2,'終了パート',start+1,partsOf(doc).length)-1;
+    }
+    if(end<=start)fail('2つ以上のパートを指定してください');
+    const next=C.groupParts(doc,start,end,symbol);
+    return {document:next,focusPart:start,summary:`${start+1}〜${end+1}番パートを${symbol==='brace'?'中括弧':'括弧'}でまとめました`};
    }
   },
   insertRests:{
@@ -575,24 +634,37 @@
    run(doc,args){
     const index=resolvePart(doc,args.part),part=partsOf(doc)[index];
     const [from,to]=measureRange(part,args.from??1,args.to??part.measures.length);
-    const ids=part.measures.slice(from,to+1).flatMap(bar=>bar.events.filter(event=>event.type==='note').map(event=>event.id));
-    if(!ids.length)fail('移調する音符がありません');
-    let edited=part,label;
+    const layers=[1,...(C.isGrandStaff(part)?[2]:[])];
+    let edited=part,count=0,label;
     if(args.semitones!==undefined){
      const amount=integer(args.semitones,'半音',-24,24);
      if(amount===0)fail('半音数に0は使えません');
-     edited=B.transform(part,ids,event=>{
-      if(event.type!=='note')return event;
-      event.pitches=C.normalizeChord(event.pitches.map(pitch=>({...pitch,...spell(C.pitchMidi(pitch)+amount,amount>0)})));
-      return event;
-     });
      label=`${amount>0?'+':''}${amount}半音`;
+     for(const staff of layers){
+      const view=C.staffScore(edited,staff);
+      const ids=view.measures.slice(from,to+1).flatMap(bar=>bar.events.filter(event=>event.type==='note').map(event=>event.id));
+      if(!ids.length)continue;
+      count+=ids.length;
+      const next=B.transform(view,ids,event=>{
+       if(event.type!=='note')return event;
+       event.pitches=C.normalizeChord(event.pitches.map(pitch=>({...pitch,...spell(C.pitchMidi(pitch)+amount,amount>0)})));
+       return event;
+      });
+      edited=C.mergeStaff(edited,staff,next);
+     }
     }else{
      const amount=integer(args.steps,'音程',-14,14);
      if(amount===0)fail('音程に0は使えません');
-     edited=B.transpose(part,ids,amount,false);
      label=`音名で${amount>0?'+':''}${amount}段`;
+     for(const staff of layers){
+      const view=C.staffScore(edited,staff);
+      const ids=view.measures.slice(from,to+1).flatMap(bar=>bar.events.filter(event=>event.type==='note').map(event=>event.id));
+      if(!ids.length)continue;
+      count+=ids.length;
+      edited=C.mergeStaff(edited,staff,B.transpose(view,ids,amount,false));
+     }
     }
+    if(!count)fail('移調する音符がありません');
     return {document:editPart(doc,index,()=>edited),focusPart:index,summary:`${part.instrument}の${from+1}〜${to+1}小節を${label}移調しました`};
    }
   },
@@ -763,10 +835,10 @@
    run(doc,args){return {summary:Arrange.describeRanges(partsOf(doc),Arrange.levelOf(args.level))};}
   },
   inspireSpark:{
-   description:'ひらめき作曲。mood（明るい/切ない/ballad 等）、part、measure（開始小節）、bars（小節数）、seed。既定で楽譜に書き込む（apply:false で提案のみ）。既存音符がある範囲は確認後に置き換える。',
+   description:'ひらめき作曲。mood（明るい/切ない/ballad 等）、part、measure（開始小節）、bars（小節数）、seed。大譜表では staff に 1 または 2。既定で楽譜に書き込む（apply:false で提案のみ）。既存音符がある範囲は確認後に置き換える。',
    parameters:{type:'object',properties:{
     seed:{type:'integer'},mood:{type:'string'},apply:{type:'boolean'},measure:{type:'integer'},from:{type:'integer'},
-    bars:{type:'integer'},measures:{type:'integer'},part:{type:'string'},overwrite:{type:'boolean'}
+    bars:{type:'integer'},measures:{type:'integer'},part:{type:'string'},overwrite:{type:'boolean'},staff:{type:'integer'}
    }},
    confirm(doc,args){
     const plan=planInspireSpark(doc,args);
@@ -825,7 +897,7 @@
    description:'MusicXMLを書き出してダウンロードする。全文は返さない。',
    parameters:{type:'object',properties:{}},
    run(doc){
-    const xml=Ex.musicXMLScore(partsOf(doc));
+    const xml=Ex.musicXMLScore(partsOf(doc),doc.staffGroups||[]);
     const filename=`${String(doc.title||'kanade').replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').slice(0,80)||'kanade'}.musicxml`;
     return {summary:`MusicXMLを書き出しました（${xml.length}文字）。ダウンロードを開始します。`,xml,filename};
    }

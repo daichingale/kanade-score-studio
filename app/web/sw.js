@@ -1,6 +1,6 @@
 /* Network-first shell. Never cache shared scores, invitation responses, dev routes, or the local Ollama proxy.
    The unmodified Verovio toolkit is precached so engraved scores stay available offline. */
-const CACHE='kanade-shell-v26';
+const CACHE='kanade-shell-v27';
 const ROOT=self.location.pathname.replace(/\/sw\.js$/,'');
 const PRECACHE=[`${ROOT}/vendor/verovio/verovio-toolkit-wasm.js`,`${ROOT}/vendor/verovio/LICENSE`,`${ROOT}/vendor/verovio/NOTICE.txt`,`${ROOT}/src/verovio-mei.js`,`${ROOT}/src/verovio-view.js`,`${ROOT}/src/verovio-worker.js`];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(PRECACHE)).then(()=>self.skipWaiting()));});

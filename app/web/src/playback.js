@@ -64,7 +64,10 @@
       const {points,punch}=dynamics(track,secondsGrid);
       if(!samples.has(instrument))samples.set(instrument,new Set());
       const midis=samples.get(instrument);
-      const voices=track.measures.some(bar=>bar.voice2?.length)?[track,C.voiceScore(track,2)]:[track];
+      const voices=[];
+      voices.push(track);
+      if(track.measures.some(bar=>bar.voice2?.length))voices.push(C.voiceScore(track,2));
+      if(C.isGrandStaff(track)&&track.measures.some(bar=>bar.staff2?.length))voices.push(C.staffScore(track,2));
       for(const score of voices){
         let previous=null;
         for(const [mi,bar] of score.measures.entries()){

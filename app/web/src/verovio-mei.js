@@ -49,9 +49,9 @@
   function pitchNote(pitch,fifths){
     return `<note pname="${String(pitch.step).toLowerCase()}" oct="${pitch.octave}"${accid(pitch.step,pitch.alter,fifths)}/>`;
   }
-  function eventXml(event,fifths,mi,index,tick,entries){
+  function eventXml(event,fifths,mi,index,tick,entries,staff){
     const id=xmlId(event.id);
-    entries.push({xmlId:id,id:String(event.id),type:event.type,index,measure:mi,tick});
+    entries.push({xmlId:id,id:String(event.id),type:event.type,index,measure:mi,tick,staff});
     if(event.type==='rest')return `<rest xml:id="${esc(id)}" ${durationAttrs(event)}/>`;
     const lyric=verse(event);
     if((event.pitches||[]).length>1){
@@ -79,11 +79,11 @@
     }
     return out;
   }
-  function layerOf(events,fifths,mi,entries){
+  function layerOf(events,fifths,mi,entries,staff){
     let tick=0,cursor=0;
     const body=groups(events||[]).map(group=>{
       const notes=group.events.map(event=>{
-        const xml=eventXml(event,fifths,mi,cursor,tick,entries);
+        const xml=eventXml(event,fifths,mi,cursor,tick,entries,staff);
         tick+=C.eventTicks(event);cursor++;
         return xml;
       }).join('');
@@ -92,23 +92,76 @@
     }).join('');
     return `<layer n="1">${body}</layer>`;
   }
-  function staffDef(part,number){
-    const clef=CLEF[part.clef]||CLEF.treble;
+  function staffDef(part,number,staffIndex=1,label){
+    const clefName=C.staffClef(part,staffIndex);
+    const clef=CLEF[clefName]||CLEF.treble;
     const time=part.time||{num:4,den:4};
-    const lines=part.staffLines??(part.clef==='percussion'?1:5);
+    const lines=C.staffLinesOf(part,staffIndex);
     const clefAttr=clef.line?`clef.shape="${clef.shape}" clef.line="${clef.line}"`:`clef.shape="${clef.shape}"`;
-    return `<staffDef n="${number}" lines="${lines}" ${clefAttr} key.sig="${keySig(part.key||0)}" meter.count="${time.num}" meter.unit="${time.den}" label="${esc(part.instrument||'')}"/>`;
+    const name=label===undefined?(staffIndex===1?(part.instrument||''):''):label;
+    return `<staffDef n="${number}" lines="${lines}" ${clefAttr} key.sig="${keySig(part.key||0)}" meter.count="${time.num}" meter.unit="${time.den}"${name?` label="${esc(name)}"`:''}/>`;
   }
-  function meiForParts(parts){
+  function expandParts(parts){
+    const slots=[];
+    parts.filter(Boolean).forEach((part,partIndex)=>{
+      const count=C.staffCount(part);
+      for(let staff=1;staff<=count;staff++){
+        slots.push({part,partIndex,staff,n:slots.length+1});
+      }
+    });
+    return slots;
+  }
+  function staffGrpXml(parts){
+    const slots=expandParts(parts);
+    const groups=parts[0]?.staffGroups||[];
+    const byPartStart=new Map(groups.map(group=>[group.start,group]));
+    const chunks=[];
+    let index=0;
+    while(index<slots.length){
+      const slot=slots[index];
+      const part=slot.part;
+      if(slot.staff===1&&C.isGrandStaff(part)){
+        const upper=staffDef(part,slot.n,1,part.instrument||'');
+        const lowerSlot=slots[index+1];
+        const lower=staffDef(part,lowerSlot.n,2,'');
+        chunks.push(`<staffGrp symbol="brace" bar.thru="true">${upper}${lower}</staffGrp>`);
+        index+=2;
+        continue;
+      }
+      const group=slot.staff===1?byPartStart.get(slot.partIndex):null;
+      if(group){
+        const members=[];
+        while(index<slots.length&&slots[index].partIndex<=group.end){
+          const current=slots[index];
+          if(current.staff===1&&C.isGrandStaff(current.part)){
+            members.push(`<staffGrp symbol="brace" bar.thru="true">${staffDef(current.part,current.n,1,current.part.instrument||'')}${staffDef(current.part,slots[index+1].n,2,'')}</staffGrp>`);
+            index+=2;
+          }else{
+            members.push(staffDef(current.part,current.n,current.staff,current.staff===1?current.part.instrument||'':''));
+            index++;
+          }
+        }
+        chunks.push(`<staffGrp symbol="${group.symbol==='brace'?'brace':'bracket'}">${members.join('')}</staffGrp>`);
+        continue;
+      }
+      chunks.push(staffDef(part,slot.n,slot.staff,slot.staff===1?part.instrument||'':''));
+      index++;
+    }
+    return chunks.join('');
+  }
+  function meiForParts(parts,staffGroups){
     const list=parts.filter(Boolean);
     const entries=[];
+    const slots=expandParts(list);
+    const groups=staffGroups||parts.staffGroups||list[0]?.staffGroups||[];
     const count=Math.max(...list.map(part=>part.measures.length));
     const measureMap=[];
     const measures=[];
     for(let mi=0;mi<count;mi++){
-      const staves=list.map((part,index)=>{
-        const measure=part.measures[mi];
-        return `<staff n="${index+1}">${measure?layerOf(measure.events,part.key||0,mi,entries):'<layer n="1"/>'}</staff>`;
+      const staves=slots.map(slot=>{
+        const measure=slot.part.measures[mi];
+        const events=C.measureStaffEvents(measure,slot.staff);
+        return `<staff n="${slot.n}">${measure?layerOf(events,slot.part.key||0,mi,entries,slot.staff):'<layer n="1"/>'}</staff>`;
       }).join('');
       const time=C.timeAt(list[0],Math.min(mi,list[0].measures.length-1));
       const previous=mi?C.timeAt(list[0],Math.min(mi-1,list[0].measures.length-1)):time;
@@ -119,17 +172,18 @@
       measureMap.push(mi);
     }
     const title=esc(list[0].title||'楽譜');
+    const withGroups=list.map((part,index)=>index?part:{...part,staffGroups:groups});
     const mei=`<?xml version="1.0" encoding="UTF-8"?>
 <mei xmlns="http://www.music-encoding.org/ns/mei" meiversion="5.0">
   <meiHead><fileDesc><titleStmt><title>${title}</title></titleStmt></fileDesc></meiHead>
   <music><body><mdiv><score>
-    <scoreDef><staffGrp>${list.map((part,index)=>staffDef(part,index+1)).join('')}</staffGrp></scoreDef>
+    <scoreDef><staffGrp>${staffGrpXml(withGroups)}</staffGrp></scoreDef>
     <section>${measures.join('')}</section>
   </score></mdiv></body></music>
 </mei>`;
-    return {mei,entries,measureMap};
+    return {mei,entries,measureMap,slots};
   }
-  function meiForPart(part){return meiForParts([part]);}
+  function meiForPart(part){return meiForParts([part],part.staffGroups||[]);}
   function decorateSvg(svg,entries,measureMap){
     const byId=new Map(entries.map(entry=>[entry.xmlId,entry]));
     const tagged=String(svg).replace(/<g\b([^>]*?)>/g,(tag,attrs)=>{
@@ -137,7 +191,7 @@
       if(!found||attrs.includes('data-event-id'))return tag;
       const meta=byId.get(found[1]);
       if(!meta)return tag;
-      return `<g${attrs} data-event-id="${esc(meta.id)}" data-event-type="${meta.type}" data-event-index="${meta.index}" data-measure="${meta.measure}" data-event-tick="${meta.tick}" data-implicit="0">`;
+      return `<g${attrs} data-event-id="${esc(meta.id)}" data-event-type="${meta.type}" data-event-index="${meta.index}" data-measure="${meta.measure}" data-event-tick="${meta.tick}" data-staff="${meta.staff||1}" data-implicit="0">`;
     });
     if(!measureMap)return tagged;
     let seen=0;
@@ -219,5 +273,5 @@
     const valid=timing.score?C.canPlaceAt(timing.score,timing.mi,tick,timing.den,timing.dots,{overwrite:!!timing.overwrite}):true;
     return {tick,notesStart,usable,valid,x:notesStart+(tick/cap)*usable};
   }
-  return {xmlId,eventIdFromXmlId,keySig,meiForPart,meiForParts,decorateSvg,pitchFromStaff,yForPitch,tickFromBox,tickFromEngraving,xForTick};
+  return {xmlId,eventIdFromXmlId,keySig,meiForPart,meiForParts,decorateSvg,pitchFromStaff,yForPitch,tickFromBox,tickFromEngraving,xForTick,expandParts,staffGrpXml};
 });

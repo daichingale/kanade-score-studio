@@ -7,7 +7,8 @@
 })(globalThis,function(C,P,B){
   'use strict';
   function read(part,voice){
-    const staff=C.voiceScore(part,voice),offsets=C.measureOffsets(staff),groups=[];
+    const layer=voice===3&&C.isGrandStaff(part)?C.staffScore(part,2):C.voiceScore(part,voice===3?1:voice);
+    const staff=layer,offsets=C.measureOffsets(staff),groups=[];
     for(const [mi,bar] of staff.measures.entries()){
       let start=offsets[mi];
       for(const [index,event] of bar.events.entries()){
@@ -24,6 +25,7 @@
   }
   function restore(data,staff){
     if(staff===data.staff)return data.part;
+    if(data.voice===3&&C.isGrandStaff(data.part))return C.mergeStaff(data.part,2,staff);
     const measures=data.part.measures.map((bar,mi)=>{
       if(!staff.measures[mi])return bar;
       const events=staff.measures[mi].events;
